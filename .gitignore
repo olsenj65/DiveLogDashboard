@@ -1,6 +1,10 @@
 # Generated files
 dive_dashboard.html
 
+# Personal certification images
+AOW.jpg
+nitrox.jpg
+
 # Shearwater database files (contain personal data)
 *.db
 
