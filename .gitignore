@@ -42,6 +42,17 @@ env/
 *.swo
 *~
 
+# API keys and config with secrets
+api_config.json
+
+# Personal/user data
+projects/
+background_images/
+sounds/
+
+# Claude Code
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

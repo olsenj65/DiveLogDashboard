@@ -289,6 +289,32 @@ class Api:
         except Exception as e:
             return json.dumps({"error": str(e)})
 
+    def save_share_image(self, b64_data, default_name="share.png"):
+        """Prompt user for save location and write a PNG image."""
+        try:
+            desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+            if not os.path.isdir(desktop):
+                desktop = os.path.expanduser("~")
+            result = self.window.create_file_dialog(
+                webview.SAVE_DIALOG,
+                directory=desktop,
+                file_types=("PNG Image (*.png)",),
+                save_filename=default_name,
+            )
+            if not result:
+                return ""
+            path = result if isinstance(result, str) else result[0] if result else ""
+            if not path:
+                return ""
+            if not path.lower().endswith(".png"):
+                path += ".png"
+            img_bytes = base64.b64decode(b64_data)
+            with open(path, "wb") as f:
+                f.write(img_bytes)
+            return path
+        except Exception:
+            return ""
+
     def save_slideshow(self, html_content, default_name="trip_slideshow.html"):
         """Prompt user for save location and write slideshow HTML."""
         try:
@@ -474,6 +500,7 @@ class Api:
             return json.dumps({"error": "No images provided"})
 
         interval_sec = max(1, (opts.get("interval_ms", 5000)) // 1000)
+        title_duration = opts.get("titleDuration", 0)
         sound_path = opts.get("soundPath", "")
 
         # Prompt for save location (synchronous — fast)
@@ -498,19 +525,33 @@ class Api:
             return json.dumps({"error": f"Save dialog error: {e}"})
 
         # Decode images to temp dir (synchronous — fast)
+        # Normalize all to JPEG for consistent ffmpeg concat
         tmp_dir = tempfile.mkdtemp(prefix="arrowcrab_ss_")
         img_paths = []
         for i, img in enumerate(images):
-            src = img.get("src", "")
-            if not src or not src.startswith("data:"):
+            try:
+                src = img.get("src", "")
+                if not src or not src.startswith("data:"):
+                    continue
+                header, b64data = src.split(",", 1)
+                img_data = base64.b64decode(b64data)
+                is_png = "png" in header
+                if is_png:
+                    # Convert PNG to JPEG for consistent pixel format
+                    try:
+                        from PIL import Image as PILImage
+                        pil_img = PILImage.open(io.BytesIO(img_data)).convert("RGB")
+                        buf = io.BytesIO()
+                        pil_img.save(buf, format="JPEG", quality=92)
+                        img_data = buf.getvalue()
+                    except ImportError:
+                        pass  # If PIL unavailable, use PNG as-is
+                img_file = os.path.join(tmp_dir, f"img_{i:04d}.jpg")
+                with open(img_file, "wb") as f:
+                    f.write(img_data)
+                img_paths.append(img_file)
+            except Exception:
                 continue
-            header, b64data = src.split(",", 1)
-            ext = ".png" if "png" in header else ".jpg"
-            img_data = base64.b64decode(b64data)
-            img_file = os.path.join(tmp_dir, f"img_{i:04d}{ext}")
-            with open(img_file, "wb") as f:
-                f.write(img_data)
-            img_paths.append(img_file)
 
         if not img_paths:
             import shutil as shutil_mod
@@ -519,28 +560,32 @@ class Api:
 
         # Create concat demuxer file
         concat_file = os.path.join(tmp_dir, "concat.txt")
+        total_duration = 0
         with open(concat_file, "w", encoding="utf-8") as f:
-            for p in img_paths:
+            for idx, p in enumerate(img_paths):
                 escaped = p.replace("\\", "/").replace("'", "'\\''")
+                dur = title_duration if (idx == 0 and title_duration > 0) else interval_sec
                 f.write(f"file '{escaped}'\n")
-                f.write(f"duration {interval_sec}\n")
+                f.write(f"duration {dur}\n")
+                total_duration += dur
             escaped = img_paths[-1].replace("\\", "/").replace("'", "'\\''")
             f.write(f"file '{escaped}'\n")
-
-        total_duration = len(img_paths) * interval_sec
 
         # Build ffmpeg command
         has_audio = sound_path and os.path.isfile(sound_path)
         cmd = [ffmpeg, "-y"]
         if has_audio:
             cmd.extend(["-stream_loop", "-1", "-i", sound_path])
-        cmd.extend(["-f", "concat", "-safe", "0", "-i", concat_file, "-t", str(total_duration)])
+        cmd.extend(["-f", "concat", "-safe", "0", "-i", concat_file])
         vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black"
+        if has_audio:
+            cmd.extend(["-map", "1:v", "-map", "0:a"])
         cmd.extend(["-vf", vf, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "30"])
         if has_audio:
-            cmd.extend(["-map", "1:v", "-map", "0:a", "-c:a", "aac", "-b:a", "192k"])
+            cmd.extend(["-c:a", "aac", "-b:a", "192k"])
         else:
             cmd.extend(["-an"])
+        cmd.extend(["-t", str(total_duration)])
         cmd.append(output_path)
 
         # Start ffmpeg in background thread so UI stays responsive
@@ -737,13 +782,19 @@ class Api:
                 MB_YESNO = 0x04
                 MB_ICONQUESTION = 0x20
                 IDYES = 6
+                MB_TOPMOST = 0x40000
+                hwnd = 0
+                try:
+                    hwnd = ctypes.windll.user32.GetForegroundWindow()
+                except Exception:
+                    pass
                 resp = ctypes.windll.user32.MessageBoxW(
-                    0,
+                    hwnd,
                     "Set this as the default project?\n\n"
                     "If set, this project will load automatically "
                     "when the app starts.",
                     "Default Project",
-                    MB_YESNO | MB_ICONQUESTION,
+                    MB_YESNO | MB_ICONQUESTION | MB_TOPMOST,
                 )
                 if resp == IDYES:
                     self.set_default_project(path)

@@ -146,9 +146,11 @@ def calculate_trip_stats(dives):
             'hours': round(total_min / 60, 1),
             'maxDepth': max_depth,
             'avgGas': round(avg_gas),
-            'color': colors.get(loc, '#94a3b8')
+            'color': colors.get(loc, '#94a3b8'),
+            '_endDate': dates[-1]
         })
-    
+
+    trips.sort(key=lambda t: t['_endDate'])
     return trips
 
 def get_logo_base64():
@@ -872,10 +874,9 @@ def generate_html(dives, computer_info, trips):
             position: absolute;
             top: -44px;
             left: 0;
-            right: 0;
             display: flex;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
             gap: 10px;
             z-index: 3;
             flex-wrap: wrap;
@@ -957,6 +958,74 @@ def generate_html(dives, computer_info, trips):
             margin-left: 8px;
         }}
         .slideshow-btn:hover {{ background: rgba(139,92,246,0.5); }}
+        .share-option-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 16px 0;
+        }}
+        .share-option-card {{
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 12px;
+            padding: 18px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s, transform 0.15s;
+        }}
+        .share-option-card:hover:not(.share-disabled) {{
+            background: rgba(6,182,212,0.15);
+            border-color: rgba(6,182,212,0.5);
+            transform: translateY(-2px);
+        }}
+        .share-option-card.share-disabled {{
+            opacity: 0.35;
+            cursor: not-allowed;
+        }}
+        .share-option-card .share-icon {{
+            font-size: 2rem;
+            margin-bottom: 8px;
+        }}
+        .share-option-card .share-label {{
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #e2e8f0;
+        }}
+        .share-option-card .share-desc {{
+            font-size: 0.7rem;
+            color: #94a3b8;
+            margin-top: 4px;
+        }}
+        #sharePreviewCanvas {{
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+            display: block;
+            margin: 0 auto;
+        }}
+        .share-photo-strip {{
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding: 8px 0;
+            margin-bottom: 8px;
+        }}
+        .share-photo-strip img {{
+            width: 48px;
+            height: 48px;
+            object-fit: cover;
+            border-radius: 6px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }}
+        .share-photo-strip img.active {{
+            border-color: #06b6d4;
+        }}
+        .share-photo-strip img:hover {{
+            border-color: rgba(6,182,212,0.5);
+        }}
         #photoTooltip {{
             position: absolute;
             pointer-events: none;
@@ -1009,6 +1078,10 @@ def generate_html(dives, computer_info, trips):
         <div class="header">
             <div class="header-top">
                 {'<img class="header-logo" src="' + logo_data_uri + '" alt="Logo">' if logo_data_uri else ''}
+                <span id="batchIdStatus" style="display:none;margin-right:12px;align-self:center;background:rgba(5,150,105,0.15);border:1px solid #059669;border-radius:8px;padding:6px 14px;font-size:0.82rem;color:#34d399;white-space:nowrap">
+                    <span id="batchIdText">Identifying...</span>
+                    <span id="batchIdProgress" style="margin-left:8px;color:#94a3b8"></span>
+                </span>
                 <div>
                     <h1>Arrowcrab Dive Studio</h1>
                     <p>Serial: {computer_info['serial']} | {date_range} | {primary_gas}</p>
@@ -1162,6 +1235,14 @@ def generate_html(dives, computer_info, trips):
         <div class="ext-backdrop" onclick="thumbCancel()"></div>
         <div class="thumb-pane-box">
             <h3 id="thumbTitle">Trip Inventory</h3>
+            <div id="thumbProgress" style="display:none;margin:-8px 0 8px 0">
+                <div style="display:flex;align-items:center;gap:10px">
+                    <div style="flex:1;background:rgba(255,255,255,0.1);border-radius:4px;height:6px;overflow:hidden">
+                        <div id="thumbProgressBar" style="background:#06b6d4;height:100%;width:0%;transition:width 0.2s;border-radius:4px"></div>
+                    </div>
+                    <span id="thumbProgressText" style="color:#94a3b8;font-size:0.8rem;white-space:nowrap">0 / 0</span>
+                </div>
+            </div>
             <div class="thumb-controls">
                 <button onclick="startCollection()" id="createCollBtn" style="background:#7c3aed;color:#fff">Create Collection</button>
                 <span id="diveThumbControls" style="display:none">
@@ -1177,6 +1258,9 @@ def generate_html(dives, computer_info, trips):
                     <button onclick="thumbRandom()">Random</button>
                     <input type="number" id="randomCount" value="25" min="1" style="width:60px">
                     <button onclick="finishCollection(event)" style="background:#4ade80;color:#0f1923">Save Collection</button>
+                </span>
+                <span id="collViewControls" style="display:none">
+                    <button id="collIdentifyAllBtn" onclick="identifyCollectionMarineLife()" style="background:#059669;color:#fff" title="Run marine life identification on all photos in this collection">Identify All Marine Life</button>
                 </span>
                 <span style="flex:1"></span>
                 <button onclick="thumbCancel()" style="background:#64748b;color:#fff">Back</button>
@@ -1214,7 +1298,8 @@ def generate_html(dives, computer_info, trips):
             <div id="marineIdContent" style="white-space:pre-wrap;color:#cbd5e1;font-size:0.9rem;line-height:1.6"></div>
             <div class="ext-btns">
                 <button class="ext-btn-cancel" onclick="closeMarineId()">Close</button>
-                <button class="ext-btn-import" id="marineIdSaveBtn" onclick="saveMarineId()">Save</button>
+                <button class="ext-btn-import" id="marineIdSaveBtn" onclick="saveMarineId()" title="Save the marine life identification text for this photo">Save</button>
+                <button class="ext-btn-import" id="marineIdOverlayBtn" onclick="overlayMarineId()" style="background:#0d9488" title="Create and save a copy of the photo with marine ID text overlaid">🖼️ Overlay Photo</button>
             </div>
         </div>
     </div>
@@ -1287,6 +1372,45 @@ def generate_html(dives, computer_info, trips):
             <div class="ext-btns">
                 <button class="ext-btn-cancel" onclick="cancelSlideshowOpts()">Cancel</button>
                 <button class="ext-btn-import" onclick="confirmSlideshowOpts()">Generate</button>
+            </div>
+        </div>
+    </div>
+    <div id="shareModal" class="ext-modal hidden">
+        <div class="ext-backdrop" onclick="closeShareModal()"></div>
+        <div class="ext-box" style="max-width:520px;min-width:380px">
+            <div id="sharePhase1">
+                <h3>🌐 Share Dive</h3>
+                <div class="ext-sub">Choose a shareable image style</div>
+                <div class="share-option-grid">
+                    <div class="share-option-card" id="shareOptCard" onclick="shareSelectOption('card')">
+                        <div class="share-icon">🤿</div>
+                        <div class="share-label">Dive Card</div>
+                        <div class="share-desc">Stats overlay on photo</div>
+                    </div>
+                    <div class="share-option-card" id="shareOptCaption" onclick="shareSelectOption('caption')">
+                        <div class="share-icon">📸</div>
+                        <div class="share-label">Photo + Caption</div>
+                        <div class="share-desc">Full photo with caption</div>
+                    </div>
+                    <div class="share-option-card" id="shareOptTrip" onclick="shareSelectOption('trip')">
+                        <div class="share-icon">🗺️</div>
+                        <div class="share-label">Trip Summary</div>
+                        <div class="share-desc">Trip stats banner</div>
+                    </div>
+                </div>
+                <div class="ext-btns">
+                    <button class="ext-btn-cancel" onclick="closeShareModal()">Cancel</button>
+                </div>
+            </div>
+            <div id="sharePhase2" style="display:none">
+                <h3 id="sharePhase2Title">Preview</h3>
+                <div id="sharePhotoStrip" class="share-photo-strip" style="display:none"></div>
+                <canvas id="sharePreviewCanvas"></canvas>
+                <div id="shareHint" style="font-size:0.75rem;color:#94a3b8;text-align:center;margin-top:8px;min-height:1.2em"></div>
+                <div class="ext-btns" style="margin-top:12px">
+                    <button class="ext-btn-cancel" onclick="shareBack()">Back</button>
+                    <button class="ext-btn-import" onclick="shareSave()" style="background:#22c55e">💾 Save</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1602,11 +1726,11 @@ def generate_html(dives, computer_info, trips):
             const photos = divePhotos[d.number];
             const anyTripsHavePics = Object.keys(tripFiles).length > 0;
             if (photos && photos.length > 0) {{
-                photoSec.innerHTML = `<button class="dive-photos-btn" onclick="openDivePics(${{d.number}})">📷 View ${{photos.length}} Photo${{photos.length > 1 ? 's' : ''}} from this Dive</button> <button class="dive-photos-btn" style="background:rgba(139,92,246,0.3);border-color:rgba(139,92,246,0.5);color:#c4b5fd" onclick="createDiveSlideshow(${{d.number}})">🎬 Create Slideshow</button> <button class="dive-photos-btn" style="background:rgba(74,222,128,0.2);border-color:rgba(74,222,128,0.4);color:#4ade80" onclick="copyDivePhotos(${{d.number}})">📁 Copy to Directory</button>`;
+                photoSec.innerHTML = `<button class="dive-photos-btn" onclick="openDivePics(${{d.number}})">📷 View ${{photos.length}} Photo${{photos.length > 1 ? 's' : ''}} from this Dive</button> <button class="dive-photos-btn" style="background:rgba(139,92,246,0.3);border-color:rgba(139,92,246,0.5);color:#c4b5fd" onclick="createDiveSlideshow(${{d.number}})">🎬 Create Slideshow</button> <button class="dive-photos-btn" style="background:rgba(74,222,128,0.2);border-color:rgba(74,222,128,0.4);color:#4ade80" onclick="copyDivePhotos(${{d.number}})">📁 Copy to Directory</button> <button class="dive-photos-btn" style="background:rgba(6,182,212,0.2);border-color:rgba(6,182,212,0.4);color:#22d3ee" onclick="openShareModal('dive',${{d.number}})">🌐 Share</button>`;
             }} else if (anyTripsHavePics) {{
-                photoSec.innerHTML = `<div class="no-pics">No pictures found for this dive</div>`;
+                photoSec.innerHTML = `<div class="no-pics">No pictures found for this dive</div> <button class="dive-photos-btn" style="background:rgba(6,182,212,0.2);border-color:rgba(6,182,212,0.4);color:#22d3ee;margin-top:6px" onclick="openShareModal('dive',${{d.number}})">🌐 Share</button>`;
             }} else {{
-                photoSec.innerHTML = '';
+                photoSec.innerHTML = `<button class="dive-photos-btn" style="background:rgba(6,182,212,0.2);border-color:rgba(6,182,212,0.4);color:#22d3ee" onclick="openShareModal('dive',${{d.number}})">🌐 Share</button>`;
             }}
             if (depthChart) depthChart.destroy();
             const depthData = generateDepthProfile(d);
@@ -2201,6 +2325,22 @@ def generate_html(dives, computer_info, trips):
         /* ── Thumbnail pane ── */
         let thumbLazyQueue = [];
         let thumbLazyRunning = false;
+        let thumbTotalCount = 0;
+        let thumbLoadedCount = 0;
+
+        function thumbProgressTick() {{
+            thumbLoadedCount++;
+            const bar = document.getElementById('thumbProgressBar');
+            const text = document.getElementById('thumbProgressText');
+            const wrap = document.getElementById('thumbProgress');
+            if (!bar) return;
+            const pct = Math.round((thumbLoadedCount / thumbTotalCount) * 100);
+            bar.style.width = pct + '%';
+            text.textContent = thumbLoadedCount + ' / ' + thumbTotalCount;
+            if (thumbLoadedCount >= thumbTotalCount) {{
+                setTimeout(function() {{ wrap.style.display = 'none'; }}, 600);
+            }}
+        }}
 
         function lazyLoadNextThumb() {{
             if (thumbLazyQueue.length === 0) {{ thumbLazyRunning = false; return; }}
@@ -2242,6 +2382,10 @@ def generate_html(dives, computer_info, trips):
             }}
             if (thumbPaneMode === 'trip') {{
                 thumbSelected = files.map((_, i) => keptStatus[tripIdx] ? keptStatus[tripIdx][i] !== false : true);
+            }} else if (thumbPaneMode === 'dive') {{
+                const dKey = 'dive_' + sourceData.diveNum;
+                if (!keptStatus[dKey]) keptStatus[dKey] = files.map(() => true);
+                thumbSelected = files.map((_, i) => keptStatus[dKey][i] !== false);
             }} else {{
                 thumbSelected = files.map(() => true);
             }}
@@ -2256,8 +2400,21 @@ def generate_html(dives, computer_info, trips):
                 document.getElementById('diveConcatBtn').style.display = allVid ? '' : 'none';
             }}
             document.getElementById('collectionControls').style.display = 'none';
+            document.getElementById('collViewControls').style.display = (thumbPaneMode === 'collection') ? '' : 'none';
             thumbLazyQueue = [];
             thumbLazyRunning = false;
+            thumbTotalCount = files.length;
+            thumbLoadedCount = 0;
+            const thumbProg = document.getElementById('thumbProgress');
+            const thumbProgBar = document.getElementById('thumbProgressBar');
+            const thumbProgText = document.getElementById('thumbProgressText');
+            if (files.length > 0) {{
+                thumbProgBar.style.width = '0%';
+                thumbProgText.textContent = '0 / ' + files.length;
+                thumbProg.style.display = '';
+            }} else {{
+                thumbProg.style.display = 'none';
+            }}
             const rawQueue = [];
             const videoThumbQueue = [];
             files.forEach((f, i) => {{
@@ -2348,11 +2505,12 @@ def generate_html(dives, computer_info, trips):
                         item.img.onload = function() {{
                             correctImageForViewer(item.img);
                             item.wrap.replaceChild(item.img, item.placeholder);
+                            thumbProgressTick();
                             setTimeout(lazyLoad, 10);
                         }};
-                        item.img.onerror = function() {{ setTimeout(lazyLoad, 10); }};
+                        item.img.onerror = function() {{ thumbProgressTick(); setTimeout(lazyLoad, 10); }};
                     }};
-                    reader.onerror = function() {{ setTimeout(lazyLoad, 10); }};
+                    reader.onerror = function() {{ thumbProgressTick(); setTimeout(lazyLoad, 10); }};
                     reader.readAsDataURL(item.file);
                 }}
                 lazyLoad();
@@ -2366,7 +2524,7 @@ def generate_html(dives, computer_info, trips):
         async function convertRawQueue(queue) {{
             const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
             if (!api || !api.convert_raw) {{
-                queue.forEach(q => {{ q.placeholder.textContent = 'RAW'; }});
+                queue.forEach(q => {{ q.placeholder.textContent = 'RAW'; thumbProgressTick(); }});
                 return;
             }}
             for (let qi = 0; qi < queue.length; qi++) {{
@@ -2396,6 +2554,7 @@ def generate_html(dives, computer_info, trips):
                 }} catch (e) {{
                     q.placeholder.textContent = 'RAW';
                 }}
+                thumbProgressTick();
             }}
         }}
 
@@ -2432,12 +2591,14 @@ def generate_html(dives, computer_info, trips):
                     }}
                     URL.revokeObjectURL(url);
                     vid.remove();
+                    thumbProgressTick();
                     setTimeout(next, 10);
                 }};
                 vid.onerror = function() {{
                     q.placeholder.textContent = '\\u25B6 Video';
                     URL.revokeObjectURL(url);
                     vid.remove();
+                    thumbProgressTick();
                     setTimeout(next, 10);
                 }};
                 vid.src = url;
@@ -2450,8 +2611,12 @@ def generate_html(dives, computer_info, trips):
             const el = document.getElementById('ti' + i);
             el.classList.toggle('selected', thumbSelected[i]);
             el.classList.toggle('deselected', !thumbSelected[i]);
-            /* Only sync keptStatus in trip mode (indices match tripFiles) */
+            /* Sync keptStatus for trip and dive modes */
             if (thumbPaneMode === 'trip' && keptStatus[thumbTripIdx]) keptStatus[thumbTripIdx][i] = thumbSelected[i];
+            if (thumbPaneMode === 'dive' && thumbPaneDiveNum) {{
+                const dKey = 'dive_' + thumbPaneDiveNum;
+                if (keptStatus[dKey]) keptStatus[dKey][i] = thumbSelected[i];
+            }}
         }}
         function syncThumbCheckboxes() {{
             thumbSelected.forEach((v, i) => {{
@@ -2550,6 +2715,7 @@ def generate_html(dives, computer_info, trips):
                     </div>
                     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
                         <button class="add-pics-btn" onclick="addPictures(${{i}})">📷 Add Pictures</button>
+                        <button class="add-pics-btn" style="background:rgba(6,182,212,0.2);border-color:rgba(6,182,212,0.4);color:#22d3ee" onclick="openShareModal('trip',${{i}})">🌐 Share</button>
                     </div>
                     <div id="tripThumb${{i}}"></div>
                 </div>
@@ -3155,17 +3321,18 @@ def generate_html(dives, computer_info, trips):
                 depthWrap.textContent = '';
             }}
 
-            /* Keep checkbox: show in trip, dive, and collection modes */
+            /* Keep checkbox: show in trip, dive, and collection modes.
+               Always use thumbSelected as the source of truth when available,
+               since it reflects the thumbnail pane's current state. */
             const keepWrap = document.getElementById('picKeepWrap');
-            if (picViewMode === 'dive') {{
-                /* Initialize kept status for dive photos if needed */
+            if (thumbSelected && i < thumbSelected.length) {{
+                keepWrap.style.display = '';
+                document.getElementById('picKeep').checked = thumbSelected[i];
+            }} else if (picViewMode === 'dive') {{
                 const dKey = 'dive_' + viewDiveNum;
                 if (!keptStatus[dKey]) keptStatus[dKey] = (divePhotos[viewDiveNum] || []).map(() => true);
                 keepWrap.style.display = '';
                 document.getElementById('picKeep').checked = keptStatus[dKey][i];
-            }} else if (picViewMode === 'collection') {{
-                keepWrap.style.display = '';
-                document.getElementById('picKeep').checked = thumbSelected && i < thumbSelected.length ? thumbSelected[i] : true;
             }} else if (keptStatus[picTripIdx]) {{
                 keepWrap.style.display = '';
                 document.getElementById('picKeep').checked = keptStatus[picTripIdx][i];
@@ -3297,8 +3464,14 @@ def generate_html(dives, computer_info, trips):
                 keptStatus[picTripIdx][picIdx] = checked;
             }}
             /* Sync with thumbnail selector state */
-            if (picViewMode === 'trip' && thumbSelected && picIdx < thumbSelected.length) {{
+            if (thumbSelected && picIdx < thumbSelected.length) {{
                 thumbSelected[picIdx] = checked;
+                /* Update thumbnail visual if visible */
+                const el = document.getElementById('ti' + picIdx);
+                if (el) {{
+                    el.classList.toggle('selected', checked);
+                    el.classList.toggle('deselected', !checked);
+                }}
             }}
         }}
 
@@ -3312,6 +3485,12 @@ def generate_html(dives, computer_info, trips):
                 if (keptStatus[dKey]) keptStatus[dKey][picIdx] = checked;
             }} else if (keptStatus[picTripIdx]) {{
                 keptStatus[picTripIdx][picIdx] = checked;
+            }}
+            /* Sync thumbnail visual */
+            if (thumbSelected && picIdx < thumbSelected.length) {{
+                thumbSelected[picIdx] = checked;
+                const el = document.getElementById('ti' + picIdx);
+                if (el) {{ el.classList.toggle('selected', checked); el.classList.toggle('deselected', !checked); }}
             }}
             const files = getViewFiles();
             if (!files || files.length === 0) return;
@@ -3606,6 +3785,7 @@ def generate_html(dives, computer_info, trips):
             pText.textContent = '0 / ' + files.length;
             pBar.style.width = '0%';
             pClose.style.display = 'none';
+            pClose.textContent = 'OK';
             overlay.classList.remove('hidden');
             let saved = 0;
             for (let si = 0; si < files.length; si++) {{
@@ -3688,6 +3868,531 @@ def generate_html(dives, computer_info, trips):
             await copyFilesToDirectory(photos, folderName, 'dive_' + diveNum);
         }}
 
+        /* ── Social Media Share ─────────────────────────────────────── */
+        let shareDiveNum = null;
+        let shareTripIdx = null;
+        let shareMode = null;       /* 'card', 'caption', 'trip' */
+        let shareContext = null;     /* 'dive' or 'trip' */
+        let sharePhotoIdx = 0;
+
+        function openShareModal(context, idx) {{
+            shareContext = context;
+            if (context === 'dive') {{
+                shareDiveNum = idx;
+                const dive = dives.find(d => d.number === idx);
+                /* Find the trip index for this dive */
+                if (dive) {{
+                    const diveLoc = normLoc(dive.location);
+                    shareTripIdx = tripsData.findIndex(t => normLoc(t.name) === diveLoc);
+                }}
+                const photos = divePhotos[idx];
+                const hasPhotos = photos && photos.length > 0;
+                /* Enable/disable photo-dependent options */
+                document.getElementById('shareOptCard').classList.toggle('share-disabled', !hasPhotos);
+                document.getElementById('shareOptCaption').classList.toggle('share-disabled', !hasPhotos);
+                document.getElementById('shareOptTrip').classList.remove('share-disabled');
+            }} else {{
+                shareTripIdx = idx;
+                shareDiveNum = null;
+                document.getElementById('shareOptCard').classList.add('share-disabled');
+                document.getElementById('shareOptCaption').classList.add('share-disabled');
+                document.getElementById('shareOptTrip').classList.remove('share-disabled');
+            }}
+            document.getElementById('sharePhase1').style.display = '';
+            document.getElementById('sharePhase2').style.display = 'none';
+            document.getElementById('shareModal').classList.remove('hidden');
+        }}
+
+        function closeShareModal() {{
+            document.getElementById('shareModal').classList.add('hidden');
+            shareMode = null;
+        }}
+
+        function shareBack() {{
+            document.getElementById('sharePhase1').style.display = '';
+            document.getElementById('sharePhase2').style.display = 'none';
+            shareMode = null;
+        }}
+
+        function shareSelectOption(mode) {{
+            /* Don't allow disabled options */
+            const optId = mode === 'card' ? 'shareOptCard' : mode === 'caption' ? 'shareOptCaption' : 'shareOptTrip';
+            if (document.getElementById(optId).classList.contains('share-disabled')) return;
+            shareMode = mode;
+            sharePhotoIdx = mode === 'trip' ? -1 : 0;
+            document.getElementById('sharePhase1').style.display = 'none';
+            document.getElementById('sharePhase2').style.display = '';
+            const titles = {{ card: '🤿 Dive Card Preview', caption: '📸 Photo + Caption Preview', trip: '🗺️ Trip Summary Preview' }};
+            document.getElementById('sharePhase2Title').textContent = titles[mode] || 'Preview';
+            buildSharePhotoStrip();
+            renderShareCanvas();
+        }}
+
+        function getSharePhotoList() {{
+            /* Return the list of File objects available for the current share context */
+            if (shareMode === 'trip' || shareContext === 'trip') {{
+                /* Gather trip inventory + collection files */
+                const idx = shareTripIdx;
+                const all = [];
+                if (idx != null && tripFiles[idx]) {{
+                    tripFiles[idx].forEach(f => all.push(f));
+                }}
+                if (idx != null && tripCollections[idx]) {{
+                    tripCollections[idx].forEach(coll => {{
+                        coll.files.forEach(f => {{
+                            if (!all.some(a => a.name === f.name && a.lastModified === f.lastModified)) all.push(f);
+                        }});
+                    }});
+                }}
+                return all;
+            }}
+            return divePhotos[shareDiveNum] || [];
+        }}
+
+        function buildSharePhotoStrip() {{
+            const strip = document.getElementById('sharePhotoStrip');
+            const photos = getSharePhotoList();
+            if (!photos || photos.length === 0) {{
+                strip.style.display = 'none';
+                return;
+            }}
+            /* For single-photo dive card/caption, hide strip */
+            if (shareMode !== 'trip' && photos.length <= 1) {{
+                strip.style.display = 'none';
+                return;
+            }}
+            strip.style.display = '';
+            strip.innerHTML = '';
+            /* First option: no photo (gradient only) — only for trip mode */
+            if (shareMode === 'trip') {{
+                const noImg = document.createElement('div');
+                noImg.style.cssText = 'width:48px;height:48px;border-radius:6px;cursor:pointer;border:2px solid ' + (sharePhotoIdx === -1 ? '#06b6d4' : 'transparent') + ';background:linear-gradient(135deg,#1e3a5f,#164e63);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;transition:border-color 0.2s';
+                noImg.textContent = '∅';
+                noImg.title = 'No background photo';
+                noImg.onclick = function() {{
+                    sharePhotoIdx = -1;
+                    updateStripSelection(strip);
+                    renderShareCanvas();
+                }};
+                strip.appendChild(noImg);
+            }}
+            photos.forEach((f, i) => {{
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(f);
+                if (i === sharePhotoIdx) img.classList.add('active');
+                img.onclick = function() {{
+                    sharePhotoIdx = i;
+                    updateStripSelection(strip);
+                    renderShareCanvas();
+                }};
+                strip.appendChild(img);
+            }});
+        }}
+
+        function updateStripSelection(strip) {{
+            /* Update active state on strip children (first child may be the 'no photo' div) */
+            let idx = 0;
+            strip.querySelectorAll(':scope > *').forEach(el => {{
+                if (el.tagName === 'IMG') {{
+                    el.classList.toggle('active', idx === sharePhotoIdx);
+                    idx++;
+                }} else {{
+                    /* The 'no photo' div */
+                    el.style.borderColor = sharePhotoIdx === -1 ? '#06b6d4' : 'transparent';
+                }}
+            }});
+        }}
+
+        async function getSharePhoto() {{
+            if (sharePhotoIdx === -1) return null;
+            const photos = getSharePhotoList();
+            if (!photos || photos.length === 0) return null;
+            const f = photos[sharePhotoIdx] || photos[0];
+            return new Promise(resolve => {{
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(null);
+                img.src = URL.createObjectURL(f);
+            }});
+        }}
+
+        function getShareDive() {{
+            return dives.find(d => d.number === shareDiveNum) || null;
+        }}
+
+        function getShareActualDepth() {{
+            /* Return the actual depth at the selected photo's time, or max depth as fallback */
+            const dive = getShareDive();
+            if (!dive) return '';
+            const photos = getSharePhotoList();
+            const f = photos[sharePhotoIdx] || photos[0];
+            if (f && f.lastModified && dive.durationSec > 0) {{
+                const diveStart = parseLocalMs(dive.date, dive.time);
+                const offsetMin = Math.max(0, Math.min(dive.durationMin, (f.lastModified - diveStart) / 60000));
+                const profile = generateDepthProfile(dive);
+                const depthVal = interpolateDepth(profile, offsetMin);
+                if (depthVal > 0) return Math.round(depthVal * 10) / 10 + (isMetric ? 'm' : 'ft');
+            }}
+            return formatDepth(dive.maxDepthM, dive.maxDepthFt);
+        }}
+
+        function getShareTrip() {{
+            if (shareTripIdx != null && shareTripIdx >= 0) return tripsData[shareTripIdx];
+            return null;
+        }}
+
+        function getShareCaption() {{
+            const photos = divePhotos[shareDiveNum];
+            if (!photos || !photos[sharePhotoIdx]) return '';
+            const f = photos[sharePhotoIdx];
+            const tripKey = shareTripIdx + '_' + f.name;
+            const diveKey = 'dive_' + shareDiveNum + '_' + f.name;
+            return picCaptions[diveKey] || picCaptions[tripKey] || '';
+        }}
+
+        async function renderShareCanvas() {{
+            const canvas = document.getElementById('sharePreviewCanvas');
+            const ctx = canvas.getContext('2d');
+            const hint = document.getElementById('shareHint');
+            hint.textContent = '';
+
+            if (shareMode === 'card') {{
+                await renderShareCard(canvas, ctx, hint);
+            }} else if (shareMode === 'caption') {{
+                await renderShareCaption(canvas, ctx, hint);
+            }} else if (shareMode === 'trip') {{
+                await renderShareTrip(canvas, ctx, hint);
+            }}
+        }}
+
+        async function renderShareCard(canvas, ctx, hint) {{
+            const dive = getShareDive();
+            if (!dive) return;
+            const photo = await getSharePhoto();
+            const W = 1080, H = 1080;
+            canvas.width = W; canvas.height = H;
+
+            if (photo) {{
+                /* Draw photo covering canvas */
+                const scale = Math.max(W / photo.width, H / photo.height);
+                const sw = W / scale, sh = H / scale;
+                const sx = (photo.width - sw) / 2, sy = (photo.height - sh) / 2;
+                ctx.drawImage(photo, sx, sy, sw, sh, 0, 0, W, H);
+            }} else {{
+                /* Gradient background */
+                const grad = ctx.createLinearGradient(0, 0, W, H);
+                grad.addColorStop(0, '#1e3a5f');
+                grad.addColorStop(1, '#164e63');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, W, H);
+            }}
+
+            /* Dark overlay at bottom */
+            const gradOverlay = ctx.createLinearGradient(0, H * 0.45, 0, H);
+            gradOverlay.addColorStop(0, 'rgba(0,0,0,0)');
+            gradOverlay.addColorStop(0.4, 'rgba(0,0,0,0.5)');
+            gradOverlay.addColorStop(1, 'rgba(0,0,0,0.85)');
+            ctx.fillStyle = gradOverlay;
+            ctx.fillRect(0, 0, W, H);
+
+            /* Top-left: Dive number badge */
+            ctx.fillStyle = 'rgba(6,182,212,0.9)';
+            roundRect(ctx, 30, 30, 200, 50, 12);
+            ctx.fill();
+            ctx.fillStyle = '#0f1923';
+            ctx.font = 'bold 26px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Dive #' + dive.number, 130, 63);
+
+            /* Bottom stats block */
+            const statsY = H - 310;
+            ctx.textAlign = 'left';
+
+            /* Location + site */
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 38px "Segoe UI", sans-serif';
+            const locText = (dive.location || 'Unknown') + (dive.site ? ' — ' + dive.site : '');
+            ctx.fillText(locText, 40, statsY);
+
+            /* Date */
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '24px "Segoe UI", sans-serif';
+            ctx.fillText(dive.date + '  •  ' + (dive.time || ''), 40, statsY + 38);
+
+            /* Stats grid */
+            const gridY = statsY + 75;
+            const photoDepth = getShareActualDepth();
+            const maxDepth = formatDepth(dive.maxDepthM, dive.maxDepthFt);
+            const stats = [
+                {{ label: 'Max Depth', value: maxDepth }},
+                {{ label: 'Photo Depth', value: photoDepth }},
+                {{ label: 'Duration', value: dive.durationMin + ' min' }},
+                {{ label: 'Water Temp', value: formatTemp(dive.avgTempC) }},
+                {{ label: 'Gas', value: 'EAN' + dive.o2Percent }},
+                {{ label: pressureUnit() + ' Used', value: formatPressure(dive.gasUsed) }},
+                {{ label: 'GF99', value: dive.endGF99 + '%' }},
+            ];
+            const colW = (W - 80) / 3;
+            stats.forEach((s, i) => {{
+                const col = i % 3;
+                const row = Math.floor(i / 3);
+                const x = 40 + col * colW;
+                const y = gridY + row * 68;
+                ctx.fillStyle = '#06b6d4';
+                ctx.font = 'bold 32px "Segoe UI", sans-serif';
+                ctx.fillText(s.value, x, y);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '18px "Segoe UI", sans-serif';
+                ctx.fillText(s.label, x, y + 24);
+            }});
+
+            /* Branding */
+            ctx.fillStyle = 'rgba(148,163,184,0.5)';
+            ctx.font = '16px "Segoe UI", sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Arrowcrab Dive Studio', W - 30, H - 20);
+
+            hint.textContent = photo ? 'Dive stats overlaid on your photo' : 'Dive stats card (add photos for background)';
+        }}
+
+        async function renderShareCaption(canvas, ctx, hint) {{
+            const dive = getShareDive();
+            if (!dive) return;
+            const photo = await getSharePhoto();
+            if (!photo) return;
+
+            const W = 1080;
+            const barH = 120;
+            /* Scale photo to fit width */
+            const photoH = Math.round((photo.height / photo.width) * W);
+            const H = photoH + barH;
+            canvas.width = W; canvas.height = H;
+
+            /* Draw photo */
+            ctx.drawImage(photo, 0, 0, W, photoH);
+
+            /* Caption bar */
+            ctx.fillStyle = '#0f1923';
+            ctx.fillRect(0, photoH, W, barH);
+
+            const caption = getShareCaption();
+            const displayText = caption || (dive.location || 'Unknown') + (dive.site ? ' — ' + dive.site : '') + '  •  ' + dive.date;
+
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = '28px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(displayText, W / 2, photoH + 45, W - 60);
+
+            /* Sub-line with dive info */
+            ctx.fillStyle = '#64748b';
+            ctx.font = '20px "Segoe UI", sans-serif';
+            ctx.fillText('Dive #' + dive.number + '  •  ' + getShareActualDepth() + ' (max ' + formatDepth(dive.maxDepthM, dive.maxDepthFt) + ')  •  ' + dive.durationMin + ' min', W / 2, photoH + 80, W - 60);
+
+            /* Branding */
+            ctx.fillStyle = 'rgba(148,163,184,0.4)';
+            ctx.font = '14px "Segoe UI", sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Arrowcrab Dive Studio', W - 20, photoH + barH - 10);
+
+            hint.textContent = caption ? 'Photo with your caption' : 'Photo with dive info (add a caption for custom text)';
+        }}
+
+        async function renderShareTrip(canvas, ctx, hint) {{
+            const trip = getShareTrip();
+            const dive = getShareDive();
+            if (!trip && !dive) return;
+            const photo = await getSharePhoto();
+
+            const W = 1080, H = photo ? 1080 : 560;
+            canvas.width = W; canvas.height = H;
+
+            if (photo) {{
+                /* Draw photo covering canvas */
+                const scale = Math.max(W / photo.width, H / photo.height);
+                const sw = W / scale, sh = H / scale;
+                const sx = (photo.width - sw) / 2, sy = (photo.height - sh) / 2;
+                ctx.drawImage(photo, sx, sy, sw, sh, 0, 0, W, H);
+                /* Dark overlay for readability */
+                const gradOverlay = ctx.createLinearGradient(0, 0, 0, H);
+                gradOverlay.addColorStop(0, 'rgba(0,0,0,0.55)');
+                gradOverlay.addColorStop(0.5, 'rgba(0,0,0,0.35)');
+                gradOverlay.addColorStop(1, 'rgba(0,0,0,0.7)');
+                ctx.fillStyle = gradOverlay;
+                ctx.fillRect(0, 0, W, H);
+            }} else {{
+                /* Gradient background */
+                const grad = ctx.createLinearGradient(0, 0, W, H);
+                grad.addColorStop(0, '#1e3a5f');
+                grad.addColorStop(0.5, '#0c4a6e');
+                grad.addColorStop(1, '#164e63');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, W, H);
+                /* Decorative circles */
+                ctx.globalAlpha = 0.08;
+                ctx.fillStyle = '#06b6d4';
+                ctx.beginPath(); ctx.arc(W - 100, 100, 200, 0, Math.PI * 2); ctx.fill();
+                ctx.beginPath(); ctx.arc(100, H - 80, 150, 0, Math.PI * 2); ctx.fill();
+                ctx.globalAlpha = 1;
+            }}
+
+            const name = trip ? trip.name : (dive.location || 'Unknown');
+            const color = trip ? trip.color : '#06b6d4';
+            /* Offset content down when photo is present so image is visible */
+            const topOff = photo ? H - 480 : 0;
+
+            /* Color accent bar */
+            ctx.fillStyle = color;
+            ctx.fillRect(40, 40 + topOff, 6, 80);
+
+            /* Trip name */
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 48px "Segoe UI", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(name, 60, 90 + topOff);
+
+            /* Dates */
+            ctx.fillStyle = photo ? '#cbd5e1' : '#94a3b8';
+            ctx.font = '22px "Segoe UI", sans-serif';
+            if (trip && trip.dates) ctx.fillText(trip.dates, 60, 125 + topOff);
+
+            /* Stats boxes */
+            const boxY = 170 + topOff;
+            const boxH = 130;
+            const boxPad = 16;
+            const tripStats = [];
+            if (trip) {{
+                tripStats.push({{ label: 'Dives', value: String(trip.dives) }});
+                tripStats.push({{ label: 'Hours', value: trip.hours.toFixed(1) }});
+                tripStats.push({{ label: 'Max Depth', value: formatDepth(trip.maxDepth, Math.round(trip.maxDepth * 3.28)) }});
+                tripStats.push({{ label: 'Avg Gas Used', value: formatPressure(trip.avgGas) + ' ' + pressureUnit() }});
+            }} else {{
+                tripStats.push({{ label: 'Max Depth', value: formatDepth(dive.maxDepthM, dive.maxDepthFt) }});
+                tripStats.push({{ label: 'Duration', value: dive.durationMin + ' min' }});
+                tripStats.push({{ label: 'Temp', value: formatTemp(dive.avgTempC) }});
+                tripStats.push({{ label: 'Gas', value: 'EAN' + dive.o2Percent }});
+            }}
+            const boxW = (W - 80 - boxPad * (tripStats.length - 1)) / tripStats.length;
+            tripStats.forEach((s, i) => {{
+                const x = 40 + i * (boxW + boxPad);
+                ctx.fillStyle = photo ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.07)';
+                roundRect(ctx, x, boxY, boxW, boxH, 12);
+                ctx.fill();
+                ctx.fillStyle = color;
+                ctx.font = 'bold 40px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(s.value, x + boxW / 2, boxY + 58);
+                ctx.fillStyle = photo ? '#cbd5e1' : '#94a3b8';
+                ctx.font = '18px "Segoe UI", sans-serif';
+                ctx.fillText(s.label, x + boxW / 2, boxY + 90);
+            }});
+
+            /* Dive list (up to 6 dives) */
+            if (trip) {{
+                const tripLoc = normLoc(trip.name);
+                const maxList = photo ? 4 : 6;
+                const tripDives = dives.filter(d => normLoc(d.location) === tripLoc).slice(0, maxList);
+                if (tripDives.length > 0) {{
+                    const listY = boxY + boxH + 30;
+                    ctx.fillStyle = photo ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.05)';
+                    roundRect(ctx, 40, listY, W - 80, H - listY - 60, 12);
+                    ctx.fill();
+                    ctx.textAlign = 'left';
+                    const lineH = 30;
+                    tripDives.forEach((d, i) => {{
+                        const y = listY + 28 + i * lineH;
+                        ctx.fillStyle = photo ? '#a5b4c4' : '#94a3b8';
+                        ctx.font = '18px "Segoe UI", sans-serif';
+                        ctx.fillText('#' + d.number, 60, y);
+                        ctx.fillStyle = '#e2e8f0';
+                        ctx.fillText((d.site || d.date) + '  •  ' + formatDepth(d.maxDepthM, d.maxDepthFt) + '  •  ' + d.durationMin + 'min', 110, y);
+                    }});
+                    const totalTrip = dives.filter(d => normLoc(d.location) === tripLoc).length;
+                    if (totalTrip > maxList) {{
+                        ctx.fillStyle = '#64748b';
+                        ctx.font = 'italic 16px "Segoe UI", sans-serif';
+                        ctx.fillText('+ ' + (totalTrip - maxList) + ' more dives', 60, listY + 28 + maxList * lineH);
+                    }}
+                }}
+            }}
+
+            /* Branding */
+            ctx.fillStyle = 'rgba(148,163,184,0.5)';
+            ctx.font = '16px "Segoe UI", sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Arrowcrab Dive Studio', W - 30, H - 20);
+
+            hint.textContent = photo ? 'Trip summary with photo background — pick another from the strip above' : (trip ? 'Trip summary card — select a photo above for a background' : 'Location summary card');
+        }}
+
+        /* Rounded rectangle helper */
+        function roundRect(ctx, x, y, w, h, r) {{
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+            ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+            ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.closePath();
+        }}
+
+        async function shareSave() {{
+            const canvas = document.getElementById('sharePreviewCanvas');
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            try {{
+                const dataUrl = canvas.toDataURL('image/png');
+                const b64 = dataUrl.split(',')[1];
+                const dive = getShareDive();
+                const trip = getShareTrip();
+                const name = shareMode === 'trip'
+                    ? (trip ? trip.name : 'trip') + '_summary'
+                    : 'dive_' + (dive ? dive.number : '') + '_' + shareMode;
+                const defaultName = name.replace(/[^a-zA-Z0-9_-]/g, '_') + '.png';
+                if (api && api.save_share_image) {{
+                    const path = await api.save_share_image(b64, defaultName);
+                    if (path) {{
+                        const bar = document.createElement('div');
+                        bar.textContent = 'Saved to ' + path.split(/[\\\\/]/).pop();
+                        bar.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:8px 24px;border-radius:8px;font-size:0.9rem;font-weight:600;z-index:9999;transition:opacity 0.5s';
+                        document.body.appendChild(bar);
+                        setTimeout(() => {{ bar.style.opacity = '0'; }}, 2000);
+                        setTimeout(() => {{ bar.remove(); }}, 2500);
+                    }}
+                }} else {{
+                    /* Fallback: browser download */
+                    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = defaultName;
+                    document.body.appendChild(a); a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }}
+            }} catch (e) {{
+                alert('Save failed: ' + e.message);
+            }}
+        }}
+
+        async function shareCopy() {{
+            const canvas = document.getElementById('sharePreviewCanvas');
+            try {{
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (!blob) {{ alert('Could not generate image.'); return; }}
+                await navigator.clipboard.write([new ClipboardItem({{ 'image/png': blob }})]);
+                const bar = document.createElement('div');
+                bar.textContent = 'Copied to clipboard';
+                bar.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:8px 24px;border-radius:8px;font-size:0.9rem;font-weight:600;z-index:9999;transition:opacity 0.5s';
+                document.body.appendChild(bar);
+                setTimeout(() => {{ bar.style.opacity = '0'; }}, 2000);
+                setTimeout(() => {{ bar.remove(); }}, 2500);
+            }} catch (e) {{
+                alert('Copy failed: ' + e.message);
+            }}
+        }}
+
         function diveCopyFromThumb() {{
             if (thumbPaneMode !== 'dive' || !thumbPaneDiveNum) return;
             const allPhotos = divePhotos[thumbPaneDiveNum];
@@ -3736,6 +4441,7 @@ def generate_html(dives, computer_info, trips):
             pText.textContent = '0 / ' + files.length;
             pBar.style.width = '0%';
             pClose.style.display = 'none';
+            pClose.textContent = 'OK';
             overlay.classList.remove('hidden');
             /* Save each video to temp files in the chosen directory */
             const tempPaths = [];
@@ -3807,6 +4513,7 @@ def generate_html(dives, computer_info, trips):
             pText.textContent = '0 / ' + files.length;
             pBar.style.width = '0%';
             pClose.style.display = 'none';
+            pClose.textContent = 'OK';
             overlay.classList.remove('hidden');
             const images = [];
             for (let fi = 0; fi < files.length; fi++) {{
@@ -3843,6 +4550,13 @@ def generate_html(dives, computer_info, trips):
                 pText.textContent = '';
                 pClose.style.display = '';
                 return;
+            }}
+            /* Prepend title card for MP4 */
+            if (opts.format === 'mp4') {{
+                const trip = tripsData[tripIdx] || null;
+                const titleUri = generateSlideshowTitleCard('collection', {{ collection: coll, trip: trip }});
+                images.unshift({{ name: '__title__', src: titleUri }});
+                opts.titleDuration = 4;
             }}
             const defName = coll.name.replace(/\\s+/g, '_') + '_slideshow.html';
             if (opts.format === 'mp4') {{
@@ -3902,6 +4616,7 @@ def generate_html(dives, computer_info, trips):
             pText.textContent = '0 / ' + photos.length;
             pBar.style.width = '0%';
             pClose.style.display = 'none';
+            pClose.textContent = 'OK';
             overlay.classList.remove('hidden');
             const images = [];
             for (let fi = 0; fi < photos.length; fi++) {{
@@ -3938,6 +4653,12 @@ def generate_html(dives, computer_info, trips):
                 pText.textContent = '';
                 pClose.style.display = '';
                 return;
+            }}
+            /* Prepend title card for MP4 */
+            if (opts.format === 'mp4' && dive) {{
+                const titleUri = generateSlideshowTitleCard('dive', {{ dive: dive }});
+                images.unshift({{ name: '__title__', src: titleUri }});
+                opts.titleDuration = 4;
             }}
             const siteName = (dive.site || dive.location || '').replace(/\\s+/g, '_');
             const defName = siteName + '_' + dive.date.replace(/[\\s\\/\\-]+/g, '_') + '.html';
@@ -4103,10 +4824,12 @@ def generate_html(dives, computer_info, trips):
                     document.getElementById('marineIdContent').textContent = res.result || 'No response.';
                 }}
                 document.getElementById('marineIdSaveBtn').style.display = '';
+                document.getElementById('marineIdOverlayBtn').style.display = '';
                 document.getElementById('marineIdModal').classList.remove('hidden');
             }} catch (e) {{
                 document.getElementById('marineIdContent').textContent = 'Error: ' + (e.message || 'Unknown error');
                 document.getElementById('marineIdSaveBtn').style.display = 'none';
+                document.getElementById('marineIdOverlayBtn').style.display = 'none';
                 document.getElementById('marineIdModal').classList.remove('hidden');
             }}
             btn.textContent = 'Identify Marine Life';
@@ -4124,6 +4847,180 @@ def generate_html(dives, computer_info, trips):
             closeMarineId();
             updateViewMarineIdBtn();
         }}
+
+        async function overlayMarineId() {{
+            const text = document.getElementById('marineIdContent').textContent;
+            if (!text) return;
+            /* Also save the ID if not already saved */
+            const files = getViewFiles();
+            if (!files[picIdx]) return;
+            const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
+            const capKey = tripKey + '_' + files[picIdx].name;
+            if (!marineIds[capKey]) {{
+                marineIds[capKey] = text;
+                updateViewMarineIdBtn();
+            }}
+            /* Load the current photo */
+            const f = files[picIdx];
+            let imgSrc;
+            if (isRaw(f.name) && rawCache[f.name]) {{
+                imgSrc = rawCache[f.name];
+            }} else {{
+                imgSrc = URL.createObjectURL(f);
+            }}
+            const img = await new Promise(resolve => {{
+                const im = new Image();
+                im.onload = () => resolve(im);
+                im.onerror = () => resolve(null);
+                im.src = imgSrc;
+            }});
+            if (!img) {{ alert('Could not load image.'); return; }}
+
+            /* Parse marine ID text into species entries, removing header lines like "# Marine Life Identification" */
+            const lines = text.split('\\n').filter(l => {{
+                const t = l.trim();
+                if (!t) return false;
+                if (/^#*\\s*Marine Life Identification/i.test(t)) return false;
+                return true;
+            }});
+
+            /* Render overlay on canvas */
+            const W = img.width, H = img.height;
+            const canvas = document.createElement('canvas');
+            canvas.width = W; canvas.height = H;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            /* Get context for site name + depth (dive) or trip location + date (trip/collection) */
+            let diveSite = '';
+            let diveDepth = '';
+            let diveLocation = '';
+            if (picViewMode === 'dive' && viewDiveNum) {{
+                const d = dives.find(dd => dd.number === viewDiveNum);
+                if (d) {{
+                    diveSite = d.site || '';
+                    diveLocation = d.location || '';
+                    /* Use actual depth at photo time instead of max depth */
+                    if (d.durationSec > 0 && f.lastModified) {{
+                        const diveStart = parseLocalMs(d.date, d.time);
+                        const offsetMin = Math.max(0, Math.min(d.durationMin, (f.lastModified - diveStart) / 60000));
+                        const profile = generateDepthProfile(d);
+                        const depthVal = interpolateDepth(profile, offsetMin);
+                        if (depthVal > 0) {{
+                            diveDepth = Math.round(depthVal * 10) / 10 + (isMetric ? 'm' : 'ft');
+                        }} else {{
+                            diveDepth = formatDepth(d.maxDepthM, d.maxDepthFt);
+                        }}
+                    }} else {{
+                        diveDepth = formatDepth(d.maxDepthM, d.maxDepthFt);
+                    }}
+                }}
+            }} else if ((picViewMode === 'trip' || picViewMode === 'collection') && tripsData[picTripIdx]) {{
+                const trip = tripsData[picTripIdx];
+                diveSite = trip.name || '';
+                diveLocation = trip.dates || '';
+            }}
+            const hasSubLine = !!(diveSite || diveDepth);
+
+            /* Calculate text area at bottom */
+            const fontSize = Math.max(12, Math.round(W / 80));
+            const lineH = fontSize * 1.4;
+            const padding = Math.round(W / 40);
+            const titleFontSize = Math.round(fontSize * 1.3);
+            const subLineH = hasSubLine ? lineH : 0;
+            const headerH = titleFontSize + subLineH + padding;
+            const maxLines = Math.min(lines.length, Math.floor((H * 0.4) / lineH) - 2);
+            const boxH = headerH + maxLines * lineH + padding;
+
+            /* Semi-transparent background */
+            const gradOverlay = ctx.createLinearGradient(0, H - boxH - 40, 0, H);
+            gradOverlay.addColorStop(0, 'rgba(0,0,0,0)');
+            gradOverlay.addColorStop(0.15, 'rgba(0,0,0,0.55)');
+            gradOverlay.addColorStop(1, 'rgba(0,0,0,0.7)');
+            ctx.fillStyle = gradOverlay;
+            ctx.fillRect(0, H - boxH - 40, W, boxH + 40);
+
+            /* Title */
+            ctx.fillStyle = '#06b6d4';
+            ctx.font = 'bold ' + titleFontSize + 'px "Segoe UI", sans-serif';
+            ctx.textAlign = 'left';
+            const titleY = H - boxH + titleFontSize;
+            ctx.fillText('Marine Life Identification', padding, titleY);
+
+            /* Site/location line under title */
+            let contentY = titleY + padding * 0.5;
+            if (hasSubLine) {{
+                ctx.fillStyle = '#ffffff';
+                ctx.font = Math.round(fontSize * 0.95) + 'px "Segoe UI", sans-serif';
+                const subText = (diveLocation ? diveLocation + ' \u2014 ' : '') + (diveSite || '') + (diveDepth ? '  \u2022  ' + diveDepth : '');
+                contentY = titleY + lineH;
+                ctx.fillText(subText, padding, contentY);
+                contentY += padding * 0.3;
+            }}
+
+            /* Text lines with word wrap */
+            ctx.font = fontSize + 'px "Segoe UI", sans-serif';
+            let y = contentY + lineH * 0.8;
+            const maxWidth = W - padding * 2;
+            for (let i = 0; i < lines.length && y < H - padding; i++) {{
+                const line = lines[i].trim();
+                ctx.fillStyle = '#ffffff';
+                /* Bold for headers: lines starting with #, number, *, or - */
+                if (/^[#\\d\\*\\-]/.test(line) || (/^[A-Z]/.test(line) && line.length < 60)) {{
+                    ctx.font = 'bold ' + fontSize + 'px "Segoe UI", sans-serif';
+                }} else {{
+                    ctx.font = fontSize + 'px "Segoe UI", sans-serif';
+                }}
+                /* Simple word wrap */
+                const words = line.split(' ');
+                let currentLine = '';
+                for (let w = 0; w < words.length; w++) {{
+                    const testLine = currentLine ? currentLine + ' ' + words[w] : words[w];
+                    if (ctx.measureText(testLine).width > maxWidth && currentLine) {{
+                        ctx.fillText(currentLine, padding, y);
+                        y += lineH;
+                        currentLine = words[w];
+                        if (y >= H - padding) break;
+                    }} else {{
+                        currentLine = testLine;
+                    }}
+                }}
+                if (currentLine && y < H - padding) {{
+                    ctx.fillText(currentLine, padding, y);
+                    y += lineH;
+                }}
+            }}
+
+            /* Branding */
+            ctx.fillStyle = 'rgba(148,163,184,0.4)';
+            ctx.font = Math.round(fontSize * 0.7) + 'px "Segoe UI", sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText('Arrowcrab Dive Studio', W - padding, H - 8);
+
+            /* Save via API */
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+            const b64 = dataUrl.split(',')[1];
+            const baseName = f.name.replace(/\\.[^.]+$/, '') + '_marine_id.jpg';
+            if (api && api.save_share_image) {{
+                const path = await api.save_share_image(b64, baseName);
+                if (path) {{
+                    const bar = document.createElement('div');
+                    bar.textContent = 'Saved to ' + path.split(/[\\\\/]/).pop();
+                    bar.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:8px 24px;border-radius:8px;font-size:0.9rem;font-weight:600;z-index:9999;transition:opacity 0.5s';
+                    document.body.appendChild(bar);
+                    setTimeout(() => {{ bar.style.opacity = '0'; }}, 2000);
+                    setTimeout(() => {{ bar.remove(); }}, 2500);
+                }}
+            }} else {{
+                /* Fallback download */
+                const a = document.createElement('a');
+                a.href = dataUrl;
+                a.download = baseName;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            }}
+            closeMarineId();
+        }}
         function viewSavedMarineId() {{
             const files = getViewFiles();
             if (!files[picIdx]) return;
@@ -4133,17 +5030,141 @@ def generate_html(dives, computer_info, trips):
             if (!text) return;
             document.getElementById('marineIdContent').textContent = text;
             document.getElementById('marineIdSaveBtn').style.display = 'none';
+            document.getElementById('marineIdOverlayBtn').style.display = '';
             document.getElementById('marineIdModal').classList.remove('hidden');
         }}
         function updateViewMarineIdBtn() {{
             const files = getViewFiles();
-            const btn = document.getElementById('viewMarineIdBtn');
-            if (!btn) return;
-            if (!files || !files[picIdx]) {{ btn.style.display = 'none'; return; }}
+            const viewBtn = document.getElementById('viewMarineIdBtn');
+            const idBtn = document.getElementById('marineIdBtn');
+            if (!viewBtn) return;
+            if (!files || !files[picIdx]) {{ viewBtn.style.display = 'none'; if (idBtn) idBtn.style.display = ''; return; }}
             const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
             const capKey = tripKey + '_' + files[picIdx].name;
-            btn.style.display = marineIds[capKey] ? '' : 'none';
+            const hasSaved = !!marineIds[capKey];
+            viewBtn.style.display = hasSaved ? '' : 'none';
+            if (idBtn) idBtn.style.display = hasSaved ? 'none' : '';
         }}
+        async function identifyCollectionMarineLife() {{
+            /* Batch marine ID for entire collection */
+            if (thumbPaneMode !== 'collection' || thumbPaneCollIdx == null) return;
+            const coll = tripCollections[thumbTripIdx] && tripCollections[thumbTripIdx][thumbPaneCollIdx];
+            if (!coll || !coll.files || coll.files.length === 0) return;
+            const photos = coll.files.filter(f => !isVideo(f.name));
+            if (photos.length === 0) {{ alert('No photos in this collection to identify.'); return; }}
+            if (photos.length > 20) {{
+                alert('Marine life identification requires 20 or fewer images. This collection has ' + photos.length + ' photos. Please reduce the collection size.');
+                return;
+            }}
+            /* Check API key first */
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            if (!api || !api.identify_marine_life) {{
+                alert('Marine life identification is only available in the app.');
+                return;
+            }}
+            if (api.get_has_api_key) {{
+                const hasKey = await api.get_has_api_key();
+                if (hasKey !== 'yes') {{
+                    marineIdPendingCallback = function() {{ identifyCollectionMarineLife(); }};
+                    document.getElementById('apiKeyInput').value = '';
+                    document.getElementById('apiKeyModal').classList.remove('hidden');
+                    return;
+                }}
+            }}
+            /* Close thumb pane and start background processing */
+            document.getElementById('thumbPane').classList.add('hidden');
+            const collName = coll.name;
+            const tripIdx = thumbTripIdx;
+            /* Show status indicator in header */
+            const statusEl = document.getElementById('batchIdStatus');
+            const statusText = document.getElementById('batchIdText');
+            const statusProg = document.getElementById('batchIdProgress');
+            statusText.textContent = 'Identifying "' + collName + '"';
+            statusProg.textContent = '0 / ' + photos.length;
+            statusEl.style.display = '';
+            /* Process each photo sequentially in background */
+            let identified = 0;
+            let errors = 0;
+            let processed = 0;
+            for (let pi = 0; pi < photos.length; pi++) {{
+                const f = photos[pi];
+                const capKey = tripIdx + '_' + f.name;
+                /* Skip already identified */
+                if (marineIds[capKey]) {{
+                    identified++;
+                    processed++;
+                    statusProg.textContent = processed + ' / ' + photos.length;
+                    continue;
+                }}
+                try {{
+                    /* Resize to max 1024px */
+                    const MAX_DIM = 1024;
+                    let imgSrc;
+                    if (isRaw(f.name) && rawCache[f.name]) {{
+                        imgSrc = rawCache[f.name];
+                    }} else if (isRaw(f.name)) {{
+                        const buf = await f.arrayBuffer();
+                        const bytes = new Uint8Array(buf);
+                        let bin = '';
+                        for (let j = 0; j < bytes.length; j += 8192)
+                            bin += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192));
+                        imgSrc = await api.convert_raw(btoa(bin));
+                        if (imgSrc && imgSrc.startsWith('data:')) rawCache[f.name] = imgSrc;
+                    }} else {{
+                        imgSrc = await fileToDataURI(f, MAX_DIM, MAX_DIM);
+                    }}
+                    if (!imgSrc) {{ errors++; processed++; statusProg.textContent = processed + ' / ' + photos.length; continue; }}
+                    /* Extract base64 */
+                    const img = await new Promise(resolve => {{
+                        const im = new Image();
+                        im.onload = () => resolve(im);
+                        im.onerror = () => resolve(null);
+                        im.src = imgSrc;
+                    }});
+                    if (!img) {{ errors++; processed++; statusProg.textContent = processed + ' / ' + photos.length; continue; }}
+                    let w = img.width, h = img.height;
+                    if (w > MAX_DIM || h > MAX_DIM) {{
+                        const scale = MAX_DIM / Math.max(w, h);
+                        w = Math.round(w * scale);
+                        h = Math.round(h * scale);
+                    }}
+                    const rc = document.createElement('canvas');
+                    rc.width = w; rc.height = h;
+                    rc.getContext('2d').drawImage(img, 0, 0, w, h);
+                    const b64 = rc.toDataURL('image/jpeg', 0.85).split(',')[1];
+                    const result = await api.identify_marine_life(b64, 'image/jpeg');
+                    const res = JSON.parse(result);
+                    if (res.error) {{
+                        errors++;
+                    }} else {{
+                        marineIds[capKey] = res.result || '';
+                        identified++;
+                    }}
+                }} catch (e) {{
+                    errors++;
+                }}
+                processed++;
+                statusProg.textContent = processed + ' / ' + photos.length;
+            }}
+            /* Show completion in header then fade out */
+            statusText.textContent = 'ID complete: "' + collName + '"';
+            statusProg.textContent = identified + ' of ' + photos.length + (errors > 0 ? ' (' + errors + ' errors)' : '');
+            statusEl.style.borderColor = '#06b6d4';
+            statusEl.style.background = 'rgba(6,182,212,0.15)';
+            setTimeout(function() {{
+                statusEl.style.transition = 'opacity 1s';
+                statusEl.style.opacity = '0';
+                setTimeout(function() {{
+                    statusEl.style.display = 'none';
+                    statusEl.style.opacity = '1';
+                    statusEl.style.transition = '';
+                    statusEl.style.borderColor = '#059669';
+                    statusEl.style.background = 'rgba(5,150,105,0.15)';
+                }}, 1000);
+            }}, 6000);
+            showToast('Marine ID complete for "' + collName + '": ' + identified + ' of ' + photos.length + ' identified' + (errors > 0 ? ' (' + errors + ' errors)' : ''), 8000);
+        }}
+
         function closeApiKeyModal() {{
             document.getElementById('apiKeyModal').classList.add('hidden');
             marineIdPendingCallback = null;
@@ -4271,6 +5292,222 @@ def generate_html(dives, computer_info, trips):
             if (slideshowOptsCallback) slideshowOptsCallback({{ format: format, title: title, interval: interval, showControls: showControls, showCaption: showCaption, showSlideNum: showSlideNum, soundDataUri: soundDataUri, soundPath: soundPath }});
             slideshowOptsCallback = null;
         }}
+        function generateSlideshowTitleCard(type, data) {{
+            /* Render a 1920x1080 title card and return as data URI.
+               type: 'dive', 'trip', or 'collection'
+               data: {{ dive, trip, collection }} as applicable */
+            const c = document.createElement('canvas');
+            c.width = 1920; c.height = 1080;
+            const ctx = c.getContext('2d');
+            const W = 1920, H = 1080;
+
+            /* Gradient background */
+            const grad = ctx.createLinearGradient(0, 0, W, H);
+            grad.addColorStop(0, '#0c2d48');
+            grad.addColorStop(0.5, '#0c4a6e');
+            grad.addColorStop(1, '#134e5e');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            /* Decorative elements */
+            ctx.globalAlpha = 0.06;
+            ctx.fillStyle = '#06b6d4';
+            ctx.beginPath(); ctx.arc(W - 200, 200, 350, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(200, H - 150, 250, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(W / 2, H / 2, 400, 0, Math.PI * 2); ctx.fill();
+            ctx.globalAlpha = 1;
+
+            /* Accent line */
+            const accentColor = (data.trip && data.trip.color) || '#06b6d4';
+            ctx.fillStyle = accentColor;
+            ctx.fillRect(W / 2 - 60, 180, 120, 4);
+
+            if (type === 'dive' && data.dive) {{
+                const d = data.dive;
+                const rate = d.durationMin > 0 ? (d.gasUsed / d.durationMin).toFixed(1) : '0';
+
+                /* Dive number badge */
+                ctx.fillStyle = accentColor;
+                roundRect(ctx, W / 2 - 120, 60, 240, 50, 25);
+                ctx.fill();
+                ctx.fillStyle = '#0f1923';
+                ctx.font = 'bold 26px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('Dive #' + d.number, W / 2, 93);
+
+                /* Location */
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 58px "Segoe UI", sans-serif';
+                ctx.fillText(d.location || 'Unknown', W / 2, 190);
+
+                /* Site */
+                if (d.site) {{
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.font = '34px "Segoe UI", sans-serif';
+                    ctx.fillText(d.site, W / 2, 235);
+                }}
+
+                /* Date + time range + gas mix */
+                ctx.fillStyle = '#64748b';
+                ctx.font = '24px "Segoe UI", sans-serif';
+                const timeRange = (d.time || '') + (d.endTime ? ' \u2013 ' + d.endTime : '');
+                ctx.fillText(d.date + '  \u2022  ' + timeRange + '  \u2022  EAN' + d.o2Percent, W / 2, 280);
+
+                /* Stats grid - 2 rows of 5 */
+                const stats = [
+                    {{ label: 'Max Depth', value: formatDepth(d.maxDepthM, d.maxDepthFt) }},
+                    {{ label: 'Avg Depth', value: (isMetric ? d.avgDepthM + 'm' : Math.round(d.avgDepthM * 3.28) + 'ft') }},
+                    {{ label: 'Duration', value: d.durationMin + ' min' }},
+                    {{ label: 'Water Temp', value: formatTemp(d.avgTempC) }},
+                    {{ label: 'End GF99', value: d.endGF99 + '%' }},
+                    {{ label: 'Start ' + pressureUnit(), value: formatPressure(d.startPSI) }},
+                    {{ label: 'End ' + pressureUnit(), value: formatPressure(d.endPSI) }},
+                    {{ label: pressureUnit() + ' Used', value: formatPressure(d.gasUsed) }},
+                    {{ label: pressureUnit() + '/min', value: isPSI ? rate : (rate * 0.0689).toFixed(1) }},
+                    {{ label: 'Gas Mix', value: 'EAN' + d.o2Percent }},
+                ];
+                const cols = 5, gridW = 1700, cellW = gridW / cols;
+                const gridX = (W - gridW) / 2;
+                stats.forEach((s, i) => {{
+                    const col = i % cols, row = Math.floor(i / cols);
+                    const cx = gridX + col * cellW + cellW / 2;
+                    const cy = 350 + row * 150;
+                    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                    roundRect(ctx, cx - cellW / 2 + 10, cy - 15, cellW - 20, 120, 12);
+                    ctx.fill();
+                    ctx.fillStyle = accentColor;
+                    ctx.font = 'bold 46px "Segoe UI", sans-serif';
+                    ctx.fillText(s.value, cx, cy + 42);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '20px "Segoe UI", sans-serif';
+                    ctx.fillText(s.label, cx, cy + 72);
+                }});
+
+                /* Dive photos count if available */
+                const photos = divePhotos[d.number];
+                const photoCount = photos ? photos.length : 0;
+                if (photoCount > 0) {{
+                    ctx.fillStyle = '#475569';
+                    ctx.font = '22px "Segoe UI", sans-serif';
+                    ctx.fillText(photoCount + ' photo' + (photoCount > 1 ? 's' : '') + ' in this dive', W / 2, 700);
+                }}
+            }} else if (type === 'trip' && data.trip) {{
+                const t = data.trip;
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 64px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(t.name, W / 2, 200);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '28px "Segoe UI", sans-serif';
+                if (t.dates) ctx.fillText(t.dates, W / 2, 245);
+
+                /* Photo count */
+                const tripIdx = tripsData.indexOf(t);
+                const tripPhotos = tripIdx >= 0 && tripFiles[tripIdx] ? tripFiles[tripIdx].length : 0;
+                if (tripPhotos > 0) {{
+                    ctx.fillStyle = '#475569';
+                    ctx.font = '22px "Segoe UI", sans-serif';
+                    ctx.fillText(tripPhotos + ' photos', W / 2, 280);
+                }}
+
+                const stats = [
+                    {{ label: 'Dives', value: String(t.dives) }},
+                    {{ label: 'Hours', value: t.hours.toFixed(1) }},
+                    {{ label: 'Max Depth', value: formatDepth(t.maxDepth, Math.round(t.maxDepth * 3.28)) }},
+                    {{ label: 'Avg ' + pressureUnit() + ' Used', value: formatPressure(t.avgGas) }},
+                ];
+                const gridW = 1400, cellW = gridW / stats.length;
+                const gridX = (W - gridW) / 2;
+                stats.forEach((s, i) => {{
+                    const cx = gridX + i * cellW + cellW / 2;
+                    ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                    roundRect(ctx, cx - cellW / 2 + 16, 320, cellW - 32, 140, 14);
+                    ctx.fill();
+                    ctx.fillStyle = accentColor;
+                    ctx.font = 'bold 50px "Segoe UI", sans-serif';
+                    ctx.fillText(s.value, cx, 400);
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '22px "Segoe UI", sans-serif';
+                    ctx.fillText(s.label, cx, 435);
+                }});
+
+                /* Dive list with more detail */
+                const tripLoc = normLoc(t.name);
+                const tripDives = dives.filter(dd => normLoc(dd.location) === tripLoc).slice(0, 8);
+                if (tripDives.length > 0) {{
+                    const lineH = 36;
+                    const listH = tripDives.length * lineH + 30;
+                    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+                    roundRect(ctx, W / 2 - 650, 510, 1300, listH, 14);
+                    ctx.fill();
+                    ctx.textAlign = 'left';
+                    tripDives.forEach((d, i) => {{
+                        const y = 545 + i * lineH;
+                        ctx.fillStyle = '#64748b';
+                        ctx.font = '20px "Segoe UI", sans-serif';
+                        ctx.fillText('#' + d.number, W / 2 - 620, y);
+                        ctx.fillStyle = '#cbd5e1';
+                        ctx.font = '20px "Segoe UI", sans-serif';
+                        const siteText = d.site || d.date;
+                        ctx.fillText(siteText, W / 2 - 560, y);
+                        ctx.fillStyle = '#94a3b8';
+                        const details = formatDepth(d.maxDepthM, d.maxDepthFt) + '  \u2022  ' + d.durationMin + 'min  \u2022  EAN' + d.o2Percent;
+                        ctx.fillText(details, W / 2 + 100, y);
+                    }});
+                    const total = dives.filter(dd => normLoc(dd.location) === tripLoc).length;
+                    if (total > 8) {{
+                        ctx.fillStyle = '#475569';
+                        ctx.font = 'italic 18px "Segoe UI", sans-serif';
+                        ctx.fillText('+ ' + (total - 8) + ' more dives', W / 2 - 620, 545 + 8 * lineH);
+                    }}
+                    ctx.textAlign = 'center';
+                }}
+            }} else if (type === 'collection' && data.collection) {{
+                const coll = data.collection;
+                const t = data.trip;
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 64px "Segoe UI", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(coll.name, W / 2, 340);
+                if (t) {{
+                    ctx.fillStyle = '#94a3b8';
+                    ctx.font = '32px "Segoe UI", sans-serif';
+                    ctx.fillText(t.name + (t.dates ? '  •  ' + t.dates : ''), W / 2, 400);
+                }}
+                ctx.fillStyle = '#64748b';
+                ctx.font = '28px "Segoe UI", sans-serif';
+                ctx.fillText(coll.files.length + ' photos', W / 2, 460);
+            }}
+
+            /* Branding */
+            ctx.fillStyle = 'rgba(148,163,184,0.3)';
+            ctx.font = '20px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Arrowcrab Dive Studio', W / 2, H - 40);
+
+            return c.toDataURL('image/jpeg', 0.92);
+        }}
+
+        function showToast(message, duration) {{
+            duration = duration || 5000;
+            let container = document.getElementById('toastContainer');
+            if (!container) {{
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none';
+                document.body.appendChild(container);
+            }}
+            const toast = document.createElement('div');
+            toast.style.cssText = 'background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-left:4px solid #06b6d4;padding:12px 20px;border-radius:8px;font-size:0.9rem;box-shadow:0 4px 12px rgba(0,0,0,0.4);pointer-events:auto;opacity:0;transition:opacity 0.3s';
+            toast.textContent = message;
+            container.appendChild(toast);
+            requestAnimationFrame(function() {{ toast.style.opacity = '1'; }});
+            setTimeout(function() {{
+                toast.style.opacity = '0';
+                setTimeout(function() {{ toast.remove(); }}, 300);
+            }}, duration);
+        }}
+
         async function saveMp4Slideshow(images, opts, defName, pTitle, pText, pBar, pClose) {{
             const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
             if (!api || !api.create_mp4_slideshow) {{
@@ -4286,7 +5523,8 @@ def generate_html(dives, computer_info, trips):
                 interval_ms: opts.interval,
                 soundPath: opts.soundPath || '',
                 title: opts.title || '',
-                showCaption: opts.showCaption !== false
+                showCaption: opts.showCaption !== false,
+                titleDuration: opts.titleDuration || 0
             }};
             const mp4DefName = defName.replace(/\\.html$/i, '') + '.mp4';
             const result = await api.create_mp4_slideshow(JSON.stringify(imagesData), JSON.stringify(optsData), mp4DefName);
@@ -4308,36 +5546,44 @@ def generate_html(dives, computer_info, trips):
                 pClose.style.display = '';
                 return;
             }}
-            /* ffmpeg is running in background — poll for completion */
+            /* ffmpeg is running in background — allow user to close dialog */
             pTitle.textContent = 'Encoding MP4 Video...';
-            pText.textContent = 'This may take a minute. Please wait...';
+            pText.textContent = 'Encoding in background. You can close this and continue working.';
             pBar.style.width = '100%';
             pBar.style.animation = 'mp4pulse 1.5s ease-in-out infinite';
-            await new Promise(function(resolve) {{
-                const poll = setInterval(async function() {{
-                    try {{
-                        const raw = await api.get_mp4_status();
-                        const st = JSON.parse(raw);
-                        if (st.state === 'done') {{
-                            clearInterval(poll);
+            pClose.style.display = '';
+            pClose.textContent = 'Continue';
+            const overlay = document.getElementById('progressOverlay');
+            /* Poll in background — updates dialog if still open, or shows toast when done */
+            const poll = setInterval(async function() {{
+                try {{
+                    const raw = await api.get_mp4_status();
+                    const st = JSON.parse(raw);
+                    if (st.state === 'done') {{
+                        clearInterval(poll);
+                        if (!overlay.classList.contains('hidden')) {{
                             pTitle.textContent = 'MP4 Slideshow Saved';
                             pText.textContent = st.path || '';
                             pBar.style.animation = 'none';
                             pBar.style.width = '100%';
-                            pClose.style.display = '';
-                            resolve();
-                        }} else if (st.state === 'error') {{
-                            clearInterval(poll);
+                            pClose.textContent = 'OK';
+                        }} else {{
+                            showToast('MP4 video saved: ' + (st.path || '').split(/[\\\\/]/).pop(), 6000);
+                        }}
+                    }} else if (st.state === 'error') {{
+                        clearInterval(poll);
+                        if (!overlay.classList.contains('hidden')) {{
                             pTitle.textContent = 'MP4 Creation Failed';
                             pText.textContent = st.error || '';
                             pBar.style.animation = 'none';
                             pBar.style.width = '100%';
-                            pClose.style.display = '';
-                            resolve();
+                            pClose.textContent = 'OK';
+                        }} else {{
+                            showToast('MP4 creation failed: ' + (st.error || 'Unknown error'), 6000);
                         }}
-                    }} catch(e) {{}}
-                }}, 800);
-            }});
+                    }}
+                }} catch(e) {{}}
+            }}, 800);
         }}
         function buildSlideshowHtml(images, opts) {{
             const imgJson = JSON.stringify(images.map(im => im.src));
@@ -4424,6 +5670,7 @@ audioJs +
             pText.textContent = '0 / ' + files.length;
             pBar.style.width = '0%';
             pClose.style.display = 'none';
+            pClose.textContent = 'OK';
             overlay.classList.remove('hidden');
             const images = [];
             for (let fi = 0; fi < files.length; fi++) {{
@@ -4460,6 +5707,12 @@ audioJs +
                 pText.textContent = '';
                 pClose.style.display = '';
                 return;
+            }}
+            /* Prepend title card for MP4 */
+            if (opts.format === 'mp4' && trip) {{
+                const titleUri = generateSlideshowTitleCard('trip', {{ trip: trip }});
+                images.unshift({{ name: '__title__', src: titleUri }});
+                opts.titleDuration = 4;
             }}
             const dateMatch = trip.dates.match(/([A-Za-z]+)\\s+\\d+.*?(\\d{{4}})/);
             const defName = trip.name.replace(/\\s+/g, '_') + (dateMatch ? '_' + dateMatch[1] + '_' + dateMatch[2] : '') + '.html';
@@ -4572,6 +5825,14 @@ audioJs +
                 if (dashboardBg) proj.background = dashboardBg;
                 const projectJson = JSON.stringify(proj, null, 2);
                 const result = await api.save_project_json(projectJson);
+                if (result) {{
+                    const bar = document.createElement('div');
+                    bar.textContent = 'Project saved';
+                    bar.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#059669;color:#fff;padding:8px 24px;border-radius:8px;font-size:0.9rem;font-weight:600;z-index:9999;transition:opacity 0.5s';
+                    document.body.appendChild(bar);
+                    setTimeout(() => {{ bar.style.opacity = '0'; }}, 2000);
+                    setTimeout(() => {{ bar.remove(); }}, 2500);
+                }}
                 return !!result;
             }} catch (e) {{
                 alert('Save error: ' + e);
