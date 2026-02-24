@@ -861,6 +861,44 @@ def generate_html(dives, computer_info, trips):
             white-space: nowrap;
         }}
         .pic-btn:hover {{ opacity: 0.85; }}
+        .uw-slider-wrap {{
+            display: none;
+            position: absolute;
+            top: -80px;
+            right: 0;
+            align-items: center;
+            gap: 8px;
+            background: rgba(15,25,35,0.85);
+            padding: 5px 12px;
+            border-radius: 8px;
+            z-index: 3;
+        }}
+        .uw-slider-wrap label {{
+            color: #94a3b8;
+            font-size: 0.72rem;
+            white-space: nowrap;
+        }}
+        .uw-slider-wrap input[type=range] {{
+            width: 120px;
+            accent-color: #7c3aed;
+        }}
+        .uw-slider-wrap .uw-strength-val {{
+            color: #e2e8f0;
+            font-size: 0.72rem;
+            min-width: 28px;
+            text-align: center;
+        }}
+        .uw-slider-wrap .uw-apply-btn {{
+            background: #7c3aed;
+            color: #fff;
+            border: none;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            cursor: pointer;
+        }}
+        .uw-slider-wrap .uw-apply-btn:hover {{ opacity: 0.85; }}
         .pic-info {{
             position: absolute;
             bottom: -36px;
@@ -1123,6 +1161,26 @@ def generate_html(dives, computer_info, trips):
                     <button onclick="clearBackground()">🗑️ Clear</button>
                 </div>
             </div>
+            <div class="settings-row">
+                <div style="display:flex;align-items:center;gap:8px;flex:1">
+                    <input type="checkbox" id="useAnthropicCb" onchange="onProviderCheck('anthropic')" style="width:16px;height:16px;accent-color:#06b6d4;cursor:pointer">
+                    <label style="cursor:pointer" onclick="document.getElementById('useAnthropicCb').click()">Anthropic API Key for Marine Identification</label>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <span id="apiKeyStatus" style="color:#64748b;font-size:0.8rem;cursor:pointer" onclick="toggleApiKey()"></span>
+                    <button onclick="openApiKeySettings()">🔑 Set Key</button>
+                </div>
+            </div>
+            <div class="settings-row">
+                <div style="display:flex;align-items:center;gap:8px;flex:1">
+                    <input type="checkbox" id="useOpenaiCb" onchange="onProviderCheck('openai')" style="width:16px;height:16px;accent-color:#06b6d4;cursor:pointer">
+                    <label style="cursor:pointer" onclick="document.getElementById('useOpenaiCb').click()">ChatGPT API Key for Marine Identification</label>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <span id="openaiKeyStatus" style="color:#64748b;font-size:0.8rem;cursor:pointer" onclick="toggleOpenaiKey()"></span>
+                    <button onclick="openOpenaiKeySettings()">🔑 Set Key</button>
+                </div>
+            </div>
         </div>
 
         <div class="stats-grid" id="statsGrid"></div>
@@ -1260,7 +1318,7 @@ def generate_html(dives, computer_info, trips):
                     <button onclick="finishCollection(event)" style="background:#4ade80;color:#0f1923">Save Collection</button>
                 </span>
                 <span id="collViewControls" style="display:none">
-                    <button id="collIdentifyAllBtn" onclick="identifyCollectionMarineLife()" style="background:#059669;color:#fff" title="Run marine life identification on all photos in this collection">Identify All Marine Life</button>
+                    <button id="collIdentifyAllBtn" onclick="identifyCollectionMarineLife()" style="background:#059669;color:#fff;display:none" title="Run marine life identification on all photos in this collection">Identify All Marine Life</button>
                 </span>
                 <span style="flex:1"></span>
                 <button onclick="thumbCancel()" style="background:#64748b;color:#fff">Back</button>
@@ -1282,11 +1340,18 @@ def generate_html(dives, computer_info, trips):
             <video id="picVid" controls style="display:none;max-width:90vw;max-height:80vh;border-radius:10px"></video>
             <button class="pic-nav pic-next" onclick="navPic(1)">&#10095;</button>
             <div class="pic-btn-bar">
-                <button class="pic-btn" id="marineIdBtn" onclick="identifyMarineLife()" style="background:#059669;color:#fff">Identify Marine Life</button>
+                <button class="pic-btn" id="marineIdBtn" onclick="identifyMarineLife()" style="background:#059669;color:#fff;display:none">Identify Marine Life</button>
                 <button class="pic-btn" id="viewMarineIdBtn" onclick="viewSavedMarineId()" style="background:#0d9488;color:#fff;display:none">View Marine ID</button>
                 <button class="pic-btn" id="uwCorrectBtn" onclick="applyUnderwaterCorrection()" style="background:#7c3aed;color:#fff">🌊 Underwater Correct</button>
                 <button class="pic-btn" onclick="setAsBackground()" style="background:#0e7490;color:#fff">Set Background</button>
                 <button class="pic-btn" onclick="picGoBack()" style="background:#64748b;color:#fff">Back</button>
+            </div>
+            <div class="uw-slider-wrap" id="uwSliderWrap">
+                <label>Strength</label>
+                <input type="range" id="uwStrengthSlider" min="0" max="100" value="50"
+                       oninput="document.getElementById('uwStrengthVal').textContent = this.value + '%'">
+                <span class="uw-strength-val" id="uwStrengthVal">50%</span>
+                <button class="uw-apply-btn" onclick="reapplyUwCorrection()">Apply</button>
             </div>
             <div class="pic-info"><span id="picName"></span> &mdash; <span id="picCounter"></span></div>
         </div>
@@ -1295,6 +1360,7 @@ def generate_html(dives, computer_info, trips):
         <div class="ext-backdrop" onclick="closeMarineId()"></div>
         <div class="ext-box" style="max-width:550px;max-height:80vh;overflow-y:auto">
             <h3 id="marineIdTitle">Marine Life Identification</h3>
+            <div id="marineIdMeta" style="display:none;color:#38bdf8;font-size:0.8rem;margin-bottom:8px;padding:6px 10px;background:rgba(56,189,248,0.1);border-radius:6px;border:1px solid rgba(56,189,248,0.2)"></div>
             <div id="marineIdContent" style="white-space:pre-wrap;color:#cbd5e1;font-size:0.9rem;line-height:1.6"></div>
             <div class="ext-btns">
                 <button class="ext-btn-cancel" onclick="closeMarineId()">Close</button>
@@ -1307,7 +1373,7 @@ def generate_html(dives, computer_info, trips):
         <div class="ext-backdrop" onclick="closeApiKeyModal()"></div>
         <div class="ext-box" style="max-width:450px">
             <h3>Anthropic API Key Required</h3>
-            <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:16px">Enter your Anthropic API key to use marine life identification. Your key is stored locally and never shared.</p>
+            <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:16px">Enter your Anthropic API key to use marine life identification. Your key is stored locally and never shared.<br><a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#06b6d4;text-decoration:underline;cursor:pointer" onclick="event.stopPropagation();window.open('https://console.anthropic.com/settings/keys','_blank');return false;">Get your API key at console.anthropic.com</a></p>
             <div class="trip-form-row">
                 <label>API Key</label>
                 <input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="font-size:0.85rem">
@@ -1315,6 +1381,21 @@ def generate_html(dives, computer_info, trips):
             <div class="ext-btns">
                 <button class="ext-btn-cancel" onclick="closeApiKeyModal()">Cancel</button>
                 <button class="ext-btn-import" onclick="saveApiKey()">Save & Continue</button>
+            </div>
+        </div>
+    </div>
+    <div id="openaiKeyModal" class="ext-modal hidden" style="z-index:1100">
+        <div class="ext-backdrop" onclick="closeOpenaiKeyModal()"></div>
+        <div class="ext-box" style="max-width:450px">
+            <h3>OpenAI API Key Required</h3>
+            <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:16px">Enter your OpenAI API key to use marine life identification with GPT-4o. Your key is stored locally and never shared.<br><a href="https://platform.openai.com/api-keys" target="_blank" style="color:#06b6d4;text-decoration:underline;cursor:pointer" onclick="event.stopPropagation();window.open('https://platform.openai.com/api-keys','_blank');return false;">Get your API key at platform.openai.com</a></p>
+            <div class="trip-form-row">
+                <label>API Key</label>
+                <input type="password" id="openaiKeyInput" placeholder="sk-..." style="font-size:0.85rem">
+            </div>
+            <div class="ext-btns">
+                <button class="ext-btn-cancel" onclick="closeOpenaiKeyModal()">Cancel</button>
+                <button class="ext-btn-import" onclick="saveOpenaiKey()">Save & Continue</button>
             </div>
         </div>
     </div>
@@ -2305,7 +2386,11 @@ def generate_html(dives, computer_info, trips):
         const rawExts = new Set(['.orf','.cr2','.cr3','.nef','.arw','.dng']);
         const rawCache = {{}};       /* filename -> data-URI */
         const picCaptions = {{}};    /* "tripIdx_filename" -> caption */
-        const marineIds = {{}};      /* "tripIdx_filename" -> identification text */
+        const marineIds = {{}};      /* "tripIdx_filename" -> {{ text, site, depthM, depthFt, timestamp }} or legacy string */
+        let hasApiKey = false;       /* tracks whether any API key is set */
+        let hasOpenaiKey = false;    /* tracks whether OpenAI API key is set */
+        let hasAnthropicKey = false; /* tracks whether Anthropic API key is set */
+        let preferredProvider = 'anthropic'; /* 'anthropic' or 'openai' */
         let thumbTripIdx = null;     /* trip index for thumbnail pane */
         let thumbSelected = [];      /* bool[] parallel to tripFiles[thumbTripIdx] */
         const tripCollections = {{}};  /* tripIdx -> [{{ name: string, files: File[] }}, ...] */
@@ -3293,10 +3378,14 @@ def generate_html(dives, computer_info, trips):
             /* Reset underwater correction state */
             uwApplied = false;
             uwOriginalSrc = '';
+            uwCurrentStrength = 50;
             const uwBtn = document.getElementById('uwCorrectBtn');
             uwBtn.textContent = '\ud83c\udf0a Underwater Correct';
             uwBtn.style.background = '#7c3aed';
             uwBtn.disabled = false;
+            document.getElementById('uwSliderWrap').style.display = 'none';
+            document.getElementById('uwStrengthSlider').value = 50;
+            document.getElementById('uwStrengthVal').textContent = '50%';
             /* picThumbBtn removed — no action needed */
 
             /* Show estimated depth at photo time for dive mode */
@@ -3654,9 +3743,118 @@ def generate_html(dives, computer_info, trips):
                 document.body.style.background = 'linear-gradient(135deg, #1e3a5f 0%, #0c4a6e 50%, #164e63 100%)';
             }}
         }}
-        function openSettings() {{
+        async function openSettings() {{
             document.getElementById('settingsOverlay').classList.add('visible');
             document.getElementById('settingsModal').classList.add('visible');
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            /* Update Anthropic API key status */
+            const statusEl = document.getElementById('apiKeyStatus');
+            if (statusEl && api && api.get_has_api_key) {{
+                const hasKey = await api.get_has_api_key();
+                statusEl.textContent = hasKey === 'yes' ? '✓ Key set' : 'Not set';
+                statusEl.style.color = hasKey === 'yes' ? '#059669' : '#ef4444';
+            }}
+            /* Update OpenAI API key status */
+            const oaiStatus = document.getElementById('openaiKeyStatus');
+            if (oaiStatus && api && api.get_has_openai_key) {{
+                const hasKey = await api.get_has_openai_key();
+                oaiStatus.textContent = hasKey === 'yes' ? '✓ Key set' : 'Not set';
+                oaiStatus.style.color = hasKey === 'yes' ? '#059669' : '#ef4444';
+            }}
+            /* Update provider checkboxes */
+            const antCb = document.getElementById('useAnthropicCb');
+            const oaiCb = document.getElementById('useOpenaiCb');
+            if (antCb) {{ antCb.checked = preferredProvider === 'anthropic' && hasAnthropicKey; antCb.disabled = !hasAnthropicKey; }}
+            if (oaiCb) {{ oaiCb.checked = preferredProvider === 'openai' && hasOpenaiKey; oaiCb.disabled = !hasOpenaiKey; }}
+        }}
+        function openApiKeySettings() {{
+            closeSettings();
+            document.getElementById('apiKeyInput').value = '';
+            marineIdPendingCallback = null;
+            document.getElementById('apiKeyModal').classList.remove('hidden');
+        }}
+        async function toggleApiKey() {{
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            if (!api || !api.get_has_api_key) return;
+            const hasKey = await api.get_has_api_key();
+            if (hasKey === 'yes') {{
+                if (api.save_api_key) await api.save_api_key('');
+                const statusEl = document.getElementById('apiKeyStatus');
+                statusEl.textContent = 'No Key';
+                statusEl.style.color = '#ef4444';
+                hasAnthropicKey = false;
+                hasApiKey = hasAnthropicKey || hasOpenaiKey;
+                updateMarineIdVisibility();
+            }}
+        }}
+        async function toggleOpenaiKey() {{
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            if (!api || !api.get_has_openai_key) return;
+            const hasKey = await api.get_has_openai_key();
+            if (hasKey === 'yes') {{
+                if (api.save_openai_key) await api.save_openai_key('');
+                const statusEl = document.getElementById('openaiKeyStatus');
+                statusEl.textContent = 'No Key';
+                statusEl.style.color = '#ef4444';
+                hasOpenaiKey = false;
+                hasApiKey = hasAnthropicKey || hasOpenaiKey;
+                updateMarineIdVisibility();
+            }}
+        }}
+        async function onProviderCheck(provider) {{
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            const antCb = document.getElementById('useAnthropicCb');
+            const oaiCb = document.getElementById('useOpenaiCb');
+            if (provider === 'anthropic') {{
+                if (antCb.checked) {{
+                    oaiCb.checked = false;
+                    preferredProvider = 'anthropic';
+                }} else {{
+                    /* unchecking — if other key exists, switch to it; otherwise re-check */
+                    if (hasOpenaiKey) {{ oaiCb.checked = true; preferredProvider = 'openai'; }}
+                    else {{ antCb.checked = true; return; }}
+                }}
+            }} else {{
+                if (oaiCb.checked) {{
+                    antCb.checked = false;
+                    preferredProvider = 'openai';
+                }} else {{
+                    if (hasAnthropicKey) {{ antCb.checked = true; preferredProvider = 'anthropic'; }}
+                    else {{ oaiCb.checked = true; return; }}
+                }}
+            }}
+            if (api && api.save_preferred_provider) await api.save_preferred_provider(preferredProvider);
+        }}
+        async function refreshApiKeyState() {{
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            if (api && api.get_has_api_key) {{
+                hasAnthropicKey = (await api.get_has_api_key()) === 'yes';
+            }} else {{
+                hasAnthropicKey = false;
+            }}
+            if (api && api.get_has_openai_key) {{
+                hasOpenaiKey = (await api.get_has_openai_key()) === 'yes';
+            }} else {{
+                hasOpenaiKey = false;
+            }}
+            hasApiKey = hasAnthropicKey || hasOpenaiKey;
+            if (api && api.get_preferred_provider) {{
+                preferredProvider = await api.get_preferred_provider();
+            }}
+            updateMarineIdVisibility();
+        }}
+        function updateMarineIdVisibility() {{
+            const idBtn = document.getElementById('marineIdBtn');
+            const viewBtn = document.getElementById('viewMarineIdBtn');
+            const collBtn = document.getElementById('collIdentifyAllBtn');
+            if (!hasApiKey) {{
+                if (idBtn) idBtn.style.display = 'none';
+                if (viewBtn) viewBtn.style.display = 'none';
+                if (collBtn) collBtn.style.display = 'none';
+            }} else {{
+                if (collBtn) collBtn.style.display = '';
+                updateViewMarineIdBtn();
+            }}
         }}
         function closeSettings() {{
             document.getElementById('settingsOverlay').classList.remove('visible');
@@ -4688,12 +4886,17 @@ def generate_html(dives, computer_info, trips):
 
 
 
-        const uwCache = {{}};               /* filename -> underwater-corrected data-URI */
+        const uwCache = {{}};               /* "filename@strength" -> underwater-corrected data-URI */
         let uwApplied = false;              /* whether UW correction is active on current image */
         let uwOriginalSrc = '';             /* original src to revert to */
+        let uwCurrentStrength = 50;         /* current slider value (0-100) */
 
         function correctImageForViewer(imgEl) {{
             imgEl.style.filter = '';
+        }}
+
+        function uwCacheKey(fname, strength) {{
+            return fname + '@' + strength;
         }}
 
         async function applyUnderwaterCorrection() {{
@@ -4703,6 +4906,7 @@ def generate_html(dives, computer_info, trips):
             const vidEl = document.getElementById('picVid');
             if (vidEl.style.display !== 'none') return; /* skip videos */
             const btn = document.getElementById('uwCorrectBtn');
+            const sliderWrap = document.getElementById('uwSliderWrap');
             const files = getViewFiles();
             const file = files && files[picIdx];
             if (!file) return;
@@ -4715,24 +4919,30 @@ def generate_html(dives, computer_info, trips):
                 uwApplied = false;
                 btn.textContent = '\ud83c\udf0a Underwater Correct';
                 btn.style.background = '#7c3aed';
+                sliderWrap.style.display = 'none';
                 correctImageForViewer(imgEl);
                 return;
             }}
 
+            const strength = uwCurrentStrength;
+            const ckey = uwCacheKey(fname, strength);
+
             /* Check cache first */
-            if (uwCache[fname]) {{
+            if (uwCache[ckey]) {{
                 uwOriginalSrc = imgEl.src;
                 imgEl.style.filter = '';
-                imgEl.src = uwCache[fname];
+                imgEl.src = uwCache[ckey];
                 uwApplied = true;
                 btn.textContent = '\u21a9 Revert';
                 btn.style.background = '#059669';
+                sliderWrap.style.display = 'flex';
                 return;
             }}
 
             /* Apply correction */
             btn.textContent = '\ud83c\udf0a Correcting...';
             btn.disabled = true;
+            const strengthFloat = strength / 100.0;
             try {{
                 let corrected = '';
                 if (isRaw(fname) && api.convert_raw_underwater) {{
@@ -4742,7 +4952,7 @@ def generate_html(dives, computer_info, trips):
                     let bin = '';
                     for (let j = 0; j < bytes.length; j += 8192)
                         bin += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192));
-                    corrected = await api.convert_raw_underwater(btoa(bin));
+                    corrected = await api.convert_raw_underwater(btoa(bin), strengthFloat);
                 }} else if (api.correct_underwater) {{
                     /* Regular image: get current src as base64 */
                     let srcData = imgEl.src;
@@ -4758,17 +4968,18 @@ def generate_html(dives, computer_info, trips):
                     }}
                     if (srcData.startsWith('data:')) {{
                         const b64 = srcData.split(',')[1];
-                        corrected = await api.correct_underwater(b64);
+                        corrected = await api.correct_underwater(b64, strengthFloat);
                     }}
                 }}
                 if (corrected && corrected.startsWith('data:')) {{
-                    uwCache[fname] = corrected;
+                    uwCache[ckey] = corrected;
                     uwOriginalSrc = imgEl.src;
                     imgEl.style.filter = '';
                     imgEl.src = corrected;
                     uwApplied = true;
                     btn.textContent = '\u21a9 Revert';
                     btn.style.background = '#059669';
+                    sliderWrap.style.display = 'flex';
                 }} else {{
                     btn.textContent = '\ud83c\udf0a Underwater Correct';
                     alert('Correction failed. The image may not need correction.');
@@ -4779,6 +4990,20 @@ def generate_html(dives, computer_info, trips):
             btn.disabled = false;
         }}
 
+        async function reapplyUwCorrection() {{
+            /* Re-apply with the current slider value */
+            uwCurrentStrength = parseInt(document.getElementById('uwStrengthSlider').value, 10);
+            if (uwApplied && uwOriginalSrc) {{
+                /* Revert first, then re-apply */
+                const imgEl = document.getElementById('picImg');
+                imgEl.src = uwOriginalSrc;
+                uwApplied = false;
+                document.getElementById('uwCorrectBtn').textContent = '\ud83c\udf0a Underwater Correct';
+                document.getElementById('uwCorrectBtn').style.background = '#7c3aed';
+            }}
+            await applyUnderwaterCorrection();
+        }}
+
         /* ── Marine Life Identification ── */
         let marineIdPendingCallback = null;
         async function identifyMarineLife() {{
@@ -4787,17 +5012,61 @@ def generate_html(dives, computer_info, trips):
             const imgEl = document.getElementById('picImg');
             const vidEl = document.getElementById('picVid');
             if (vidEl.style.display !== 'none') {{ alert('Cannot identify marine life in videos.'); return; }}
-            if (!imgEl.src || !imgEl.naturalWidth) return;
-            const btn = document.getElementById('marineIdBtn');
-            /* Check for API key */
-            if (api.get_has_api_key) {{
-                const hasKey = await api.get_has_api_key();
-                if (hasKey !== 'yes') {{
-                    marineIdPendingCallback = function() {{ identifyMarineLife(); }};
-                    document.getElementById('apiKeyInput').value = '';
-                    document.getElementById('apiKeyModal').classList.remove('hidden');
+            const idFiles = getViewFiles();
+            const idFile = idFiles[picIdx];
+            if (idFile) {{
+                const ext = fileExt(idFile.name);
+                if (ext !== '.jpg' && ext !== '.jpeg' && ext !== '.orf') {{
+                    alert('Marine life identification is only available for .jpg and .orf files.');
                     return;
                 }}
+            }}
+            /* For .orf files, wait for or trigger RAW conversion if image not yet loaded */
+            if (!imgEl.src || !imgEl.naturalWidth) {{
+                if (idFile && isRaw(idFile.name)) {{
+                    if (!rawCache[idFile.name]) {{
+                        /* Convert the RAW file now */
+                        if (api.convert_raw) {{
+                            const buf = await idFile.arrayBuffer();
+                            const bytes = new Uint8Array(buf);
+                            let bin = '';
+                            for (let j = 0; j < bytes.length; j += 8192)
+                                bin += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192));
+                            const uri = await api.convert_raw(btoa(bin));
+                            if (uri && uri.startsWith('data:')) {{
+                                rawCache[idFile.name] = uri;
+                                imgEl.src = uri;
+                            }} else {{
+                                alert('Could not convert RAW file. Please wait for it to finish loading and try again.');
+                                return;
+                            }}
+                        }} else {{
+                            return;
+                        }}
+                    }} else {{
+                        imgEl.src = rawCache[idFile.name];
+                    }}
+                    /* Wait for the image element to fully load */
+                    await new Promise(resolve => {{
+                        if (imgEl.naturalWidth) {{ resolve(); return; }}
+                        imgEl.onload = function() {{ resolve(); }};
+                        imgEl.onerror = function() {{ resolve(); }};
+                    }});
+                    if (!imgEl.naturalWidth) {{
+                        alert('Could not load the converted image. Please try again.');
+                        return;
+                    }}
+                }} else {{
+                    return;
+                }}
+            }}
+            const btn = document.getElementById('marineIdBtn');
+            /* Check for API key — prompt for whichever key is missing */
+            if (!hasApiKey) {{
+                marineIdPendingCallback = function() {{ identifyMarineLife(); }};
+                document.getElementById('apiKeyInput').value = '';
+                document.getElementById('apiKeyModal').classList.remove('hidden');
+                return;
             }}
             btn.textContent = 'Identifying...';
             btn.disabled = true;
@@ -4816,7 +5085,12 @@ def generate_html(dives, computer_info, trips):
                 const srcData = resizeCanvas.toDataURL('image/jpeg', 0.85);
                 const b64 = srcData.split(',')[1];
                 const mediaType = 'image/jpeg';
-                const result = await api.identify_marine_life(b64, mediaType);
+                /* Choose provider: prefer selected, fallback to available */
+                let useOpenai = preferredProvider === 'openai' && hasOpenaiKey;
+                if (!useOpenai && !hasAnthropicKey && hasOpenaiKey) useOpenai = true;
+                const result = useOpenai
+                    ? await api.identify_marine_life_openai(b64, mediaType)
+                    : await api.identify_marine_life(b64, mediaType);
                 const res = JSON.parse(result);
                 if (res.error) {{
                     document.getElementById('marineIdContent').textContent = 'Error: ' + res.error;
@@ -4825,11 +5099,29 @@ def generate_html(dives, computer_info, trips):
                 }}
                 document.getElementById('marineIdSaveBtn').style.display = '';
                 document.getElementById('marineIdOverlayBtn').style.display = '';
+                /* Show dive context preview in modal */
+                const metaEl = document.getElementById('marineIdMeta');
+                if (metaEl) {{
+                    const files = getViewFiles();
+                    const ctx = files[picIdx] ? getPhotoDiveContext(files[picIdx]) : null;
+                    if (ctx && (ctx.site || ctx.depthM != null || ctx.timestamp)) {{
+                        let parts = [];
+                        if (ctx.site) parts.push('Site: ' + ctx.site);
+                        if (ctx.depthM != null) parts.push('Depth: ' + ctx.depthM + 'm / ' + ctx.depthFt + 'ft');
+                        if (ctx.timestamp) parts.push('Time: ' + ctx.timestamp);
+                        metaEl.textContent = parts.join('  \\u2022  ');
+                        metaEl.style.display = '';
+                    }} else {{
+                        metaEl.style.display = 'none';
+                    }}
+                }}
                 document.getElementById('marineIdModal').classList.remove('hidden');
             }} catch (e) {{
                 document.getElementById('marineIdContent').textContent = 'Error: ' + (e.message || 'Unknown error');
                 document.getElementById('marineIdSaveBtn').style.display = 'none';
                 document.getElementById('marineIdOverlayBtn').style.display = 'none';
+                const metaEl = document.getElementById('marineIdMeta');
+                if (metaEl) metaEl.style.display = 'none';
                 document.getElementById('marineIdModal').classList.remove('hidden');
             }}
             btn.textContent = 'Identify Marine Life';
@@ -4837,13 +5129,21 @@ def generate_html(dives, computer_info, trips):
         }}
         function closeMarineId() {{
             document.getElementById('marineIdModal').classList.add('hidden');
+            const metaEl = document.getElementById('marineIdMeta');
+            if (metaEl) {{ metaEl.style.display = 'none'; metaEl.textContent = ''; }}
         }}
         function saveMarineId() {{
             const files = getViewFiles();
             if (!files[picIdx]) return;
             const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
             const capKey = tripKey + '_' + files[picIdx].name;
-            marineIds[capKey] = document.getElementById('marineIdContent').textContent;
+            const text = document.getElementById('marineIdContent').textContent;
+            const ctx = getPhotoDiveContext(files[picIdx]);
+            if (ctx) {{
+                marineIds[capKey] = {{ text: text, site: ctx.site, depthM: ctx.depthM, depthFt: ctx.depthFt, timestamp: ctx.timestamp }};
+            }} else {{
+                marineIds[capKey] = {{ text: text, site: '', depthM: null, depthFt: null, timestamp: null }};
+            }}
             closeMarineId();
             updateViewMarineIdBtn();
         }}
@@ -4857,7 +5157,12 @@ def generate_html(dives, computer_info, trips):
             const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
             const capKey = tripKey + '_' + files[picIdx].name;
             if (!marineIds[capKey]) {{
-                marineIds[capKey] = text;
+                const ctx = getPhotoDiveContext(files[picIdx]);
+                if (ctx) {{
+                    marineIds[capKey] = {{ text: text, site: ctx.site, depthM: ctx.depthM, depthFt: ctx.depthFt, timestamp: ctx.timestamp }};
+                }} else {{
+                    marineIds[capKey] = {{ text: text, site: '', depthM: null, depthFt: null, timestamp: null }};
+                }}
                 updateViewMarineIdBtn();
             }}
             /* Load the current photo */
@@ -4865,6 +5170,17 @@ def generate_html(dives, computer_info, trips):
             let imgSrc;
             if (isRaw(f.name) && rawCache[f.name]) {{
                 imgSrc = rawCache[f.name];
+            }} else if (isRaw(f.name)) {{
+                const api2 = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+                if (api2 && api2.convert_raw) {{
+                    const buf = await f.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    let bin = '';
+                    for (let j = 0; j < bytes.length; j += 8192)
+                        bin += String.fromCharCode.apply(null, bytes.subarray(j, j + 8192));
+                    imgSrc = await api2.convert_raw(btoa(bin));
+                    if (imgSrc && imgSrc.startsWith('data:')) rawCache[f.name] = imgSrc;
+                }}
             }} else {{
                 imgSrc = URL.createObjectURL(f);
             }}
@@ -4920,7 +5236,14 @@ def generate_html(dives, computer_info, trips):
                 diveSite = trip.name || '';
                 diveLocation = trip.dates || '';
             }}
-            const hasSubLine = !!(diveSite || diveDepth);
+            let photoTimestamp = '';
+            if (f.lastModified) {{
+                const dt = new Date(f.lastModified);
+                const pad = n => String(n).padStart(2, '0');
+                photoTimestamp = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()) +
+                                 ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
+            }}
+            const hasSubLine = !!(diveSite || diveDepth || photoTimestamp);
 
             /* Calculate text area at bottom */
             const fontSize = Math.max(12, Math.round(W / 80));
@@ -4952,7 +5275,7 @@ def generate_html(dives, computer_info, trips):
             if (hasSubLine) {{
                 ctx.fillStyle = '#ffffff';
                 ctx.font = Math.round(fontSize * 0.95) + 'px "Segoe UI", sans-serif';
-                const subText = (diveLocation ? diveLocation + ' \u2014 ' : '') + (diveSite || '') + (diveDepth ? '  \u2022  ' + diveDepth : '');
+                const subText = (diveLocation ? diveLocation + ' \u2014 ' : '') + (diveSite || '') + (diveDepth ? '  \u2022  ' + diveDepth : '') + (photoTimestamp ? '  \u2022  ' + photoTimestamp : '');
                 contentY = titleY + lineH;
                 ctx.fillText(subText, padding, contentY);
                 contentY += padding * 0.3;
@@ -5026,9 +5349,25 @@ def generate_html(dives, computer_info, trips):
             if (!files[picIdx]) return;
             const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
             const capKey = tripKey + '_' + files[picIdx].name;
-            const text = marineIds[capKey];
-            if (!text) return;
+            const entry = marineIds[capKey];
+            if (!entry) return;
+            const text = getMarineIdText(entry);
             document.getElementById('marineIdContent').textContent = text;
+            /* Show dive context metadata if available */
+            const metaEl = document.getElementById('marineIdMeta');
+            if (metaEl) {{
+                if (typeof entry === 'object' && (entry.site || entry.depthM != null || entry.timestamp)) {{
+                    let parts = [];
+                    if (entry.site) parts.push('Site: ' + entry.site);
+                    if (entry.depthM != null) parts.push('Depth: ' + entry.depthM + 'm / ' + entry.depthFt + 'ft');
+                    if (entry.timestamp) parts.push('Time: ' + entry.timestamp);
+                    metaEl.textContent = parts.join('  \\u2022  ');
+                    metaEl.style.display = '';
+                }} else {{
+                    metaEl.textContent = '';
+                    metaEl.style.display = 'none';
+                }}
+            }}
             document.getElementById('marineIdSaveBtn').style.display = 'none';
             document.getElementById('marineIdOverlayBtn').style.display = '';
             document.getElementById('marineIdModal').classList.remove('hidden');
@@ -5038,20 +5377,27 @@ def generate_html(dives, computer_info, trips):
             const viewBtn = document.getElementById('viewMarineIdBtn');
             const idBtn = document.getElementById('marineIdBtn');
             if (!viewBtn) return;
+            if (!hasApiKey) {{
+                viewBtn.style.display = 'none';
+                if (idBtn) idBtn.style.display = 'none';
+                return;
+            }}
             if (!files || !files[picIdx]) {{ viewBtn.style.display = 'none'; if (idBtn) idBtn.style.display = ''; return; }}
             const tripKey = (picViewMode === 'dive') ? 'dive_' + viewDiveNum : picTripIdx;
             const capKey = tripKey + '_' + files[picIdx].name;
             const hasSaved = !!marineIds[capKey];
+            const ext = fileExt(files[picIdx].name);
+            const canIdentify = ext === '.jpg' || ext === '.jpeg' || ext === '.orf';
             viewBtn.style.display = hasSaved ? '' : 'none';
-            if (idBtn) idBtn.style.display = hasSaved ? 'none' : '';
+            if (idBtn) idBtn.style.display = hasSaved ? 'none' : (canIdentify ? '' : 'none');
         }}
         async function identifyCollectionMarineLife() {{
             /* Batch marine ID for entire collection */
             if (thumbPaneMode !== 'collection' || thumbPaneCollIdx == null) return;
             const coll = tripCollections[thumbTripIdx] && tripCollections[thumbTripIdx][thumbPaneCollIdx];
             if (!coll || !coll.files || coll.files.length === 0) return;
-            const photos = coll.files.filter(f => !isVideo(f.name));
-            if (photos.length === 0) {{ alert('No photos in this collection to identify.'); return; }}
+            const photos = coll.files.filter(f => {{ const e = fileExt(f.name); return e === '.jpg' || e === '.jpeg' || e === '.orf'; }});
+            if (photos.length === 0) {{ alert('No .jpg or .orf photos in this collection to identify.'); return; }}
             if (photos.length > 20) {{
                 alert('Marine life identification requires 20 or fewer images. This collection has ' + photos.length + ' photos. Please reduce the collection size.');
                 return;
@@ -5062,15 +5408,15 @@ def generate_html(dives, computer_info, trips):
                 alert('Marine life identification is only available in the app.');
                 return;
             }}
-            if (api.get_has_api_key) {{
-                const hasKey = await api.get_has_api_key();
-                if (hasKey !== 'yes') {{
-                    marineIdPendingCallback = function() {{ identifyCollectionMarineLife(); }};
-                    document.getElementById('apiKeyInput').value = '';
-                    document.getElementById('apiKeyModal').classList.remove('hidden');
-                    return;
-                }}
+            if (!hasApiKey) {{
+                marineIdPendingCallback = function() {{ identifyCollectionMarineLife(); }};
+                document.getElementById('apiKeyInput').value = '';
+                document.getElementById('apiKeyModal').classList.remove('hidden');
+                return;
             }}
+            /* Choose provider: prefer selected, fallback to available */
+            let collUseOpenai = preferredProvider === 'openai' && hasOpenaiKey;
+            if (!collUseOpenai && !hasAnthropicKey && hasOpenaiKey) collUseOpenai = true;
             /* Close thumb pane and start background processing */
             document.getElementById('thumbPane').classList.add('hidden');
             const collName = coll.name;
@@ -5132,12 +5478,39 @@ def generate_html(dives, computer_info, trips):
                     rc.width = w; rc.height = h;
                     rc.getContext('2d').drawImage(img, 0, 0, w, h);
                     const b64 = rc.toDataURL('image/jpeg', 0.85).split(',')[1];
-                    const result = await api.identify_marine_life(b64, 'image/jpeg');
+                    const result = collUseOpenai
+                        ? await api.identify_marine_life_openai(b64, 'image/jpeg')
+                        : await api.identify_marine_life(b64, 'image/jpeg');
                     const res = JSON.parse(result);
                     if (res.error) {{
                         errors++;
                     }} else {{
-                        marineIds[capKey] = res.result || '';
+                        const idText = res.result || '';
+                        /* Find dive context for this photo */
+                        let batchCtx = null;
+                        const photoMs = f.lastModified;
+                        for (let di = 0; di < dives.length; di++) {{
+                            const dv = dives[di];
+                            const dvStart = parseLocalMs(dv.date, dv.time);
+                            if (isNaN(dvStart)) continue;
+                            const dvEnd = dvStart + dv.durationSec * 1000;
+                            if (photoMs >= dvStart - 1800000 && photoMs <= dvEnd + 1800000) {{
+                                const offMin = Math.max(0, Math.min(dv.durationMin, (photoMs - dvStart) / 60000));
+                                const dd = generateDepthProfile(dv);
+                                const dm = Math.round(interpolateDepth(dd, offMin) * 10) / 10;
+                                const dt = new Date(photoMs);
+                                const pad = n => String(n).padStart(2, '0');
+                                const ts = dt.getFullYear() + '-' + pad(dt.getMonth()+1) + '-' + pad(dt.getDate()) +
+                                           ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
+                                batchCtx = {{ site: dv.site || dv.location || '', depthM: dm, depthFt: Math.round(dm * 3.28084), timestamp: ts }};
+                                break;
+                            }}
+                        }}
+                        if (batchCtx) {{
+                            marineIds[capKey] = {{ text: idText, site: batchCtx.site, depthM: batchCtx.depthM, depthFt: batchCtx.depthFt, timestamp: batchCtx.timestamp }};
+                        }} else {{
+                            marineIds[capKey] = {{ text: idText, site: '', depthM: null, depthFt: null, timestamp: null }};
+                        }}
                         identified++;
                     }}
                 }} catch (e) {{
@@ -5176,7 +5549,37 @@ def generate_html(dives, computer_info, trips):
             if (api && api.save_api_key) {{
                 await api.save_api_key(key);
             }}
+            hasAnthropicKey = true;
+            hasApiKey = true;
+            updateMarineIdVisibility();
             document.getElementById('apiKeyModal').classList.add('hidden');
+            if (marineIdPendingCallback) {{
+                const cb = marineIdPendingCallback;
+                marineIdPendingCallback = null;
+                cb();
+            }}
+        }}
+        function openOpenaiKeySettings() {{
+            closeSettings();
+            document.getElementById('openaiKeyInput').value = '';
+            marineIdPendingCallback = null;
+            document.getElementById('openaiKeyModal').classList.remove('hidden');
+        }}
+        function closeOpenaiKeyModal() {{
+            document.getElementById('openaiKeyModal').classList.add('hidden');
+            marineIdPendingCallback = null;
+        }}
+        async function saveOpenaiKey() {{
+            const key = document.getElementById('openaiKeyInput').value.trim();
+            if (!key) {{ alert('Please enter an API key.'); return; }}
+            const api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+            if (api && api.save_openai_key) {{
+                await api.save_openai_key(key);
+            }}
+            hasOpenaiKey = true;
+            hasApiKey = true;
+            updateMarineIdVisibility();
+            document.getElementById('openaiKeyModal').classList.add('hidden');
             if (marineIdPendingCallback) {{
                 const cb = marineIdPendingCallback;
                 marineIdPendingCallback = null;
@@ -5766,6 +6169,37 @@ audioJs +
 
         let chartPhotoPoints = [];  /* cached for click handler */
 
+        /* ── Dive context for a photo (site, depth, timestamp) ── */
+        function getPhotoDiveContext(file) {{
+            /* Try to find the dive this photo belongs to and compute depth + timestamp */
+            let dive = null;
+            if (picViewMode === 'dive' && viewDiveNum != null) {{
+                dive = dives.find(d => d.number === viewDiveNum);
+            }}
+            if (!dive) return null;
+            const site = dive.site || dive.location || '';
+            const start = parseLocalMs(dive.date, dive.time);
+            if (isNaN(start)) return {{ site: site, depthM: null, depthFt: null, timestamp: null }};
+            const photoMs = file.lastModified;
+            const offsetMin = (photoMs - start) / 60000;
+            const clampedMin = Math.max(0, Math.min(dive.durationMin, offsetMin));
+            const depthData = generateDepthProfile(dive);
+            const depthM = Math.round(interpolateDepth(depthData, clampedMin) * 10) / 10;
+            const depthFt = Math.round(depthM * 3.28084);
+            /* Build human-readable timestamp from photo lastModified */
+            const dt = new Date(photoMs);
+            const pad = n => String(n).padStart(2, '0');
+            const timestamp = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()) +
+                              ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes()) + ':' + pad(dt.getSeconds());
+            return {{ site: site, depthM: depthM, depthFt: depthFt, timestamp: timestamp }};
+        }}
+
+        function getMarineIdText(entry) {{
+            /* Extract text from a marineIds entry (handles both legacy string and new object format) */
+            if (!entry) return '';
+            return (typeof entry === 'string') ? entry : (entry.text || '');
+        }}
+
         /* ── Save / Load project ── */
         function hasProjectData() {{
             return dives.length > 0 || tripsData.length > 0 || Object.keys(tripFiles).length > 0;
@@ -5947,6 +6381,21 @@ audioJs +
         renderStats();
         renderTrips();
         renderTable();
+
+        /* Check API key state on startup */
+        (function() {{
+            var attempts = 0;
+            function tryCheckKey() {{
+                if (attempts++ > 50) return;
+                var api = window.parent && window.parent.pywebview && window.parent.pywebview.api;
+                if (api && api.get_has_api_key) {{
+                    refreshApiKeyState();
+                }} else {{
+                    setTimeout(tryCheckKey, 100);
+                }}
+            }}
+            setTimeout(tryCheckKey, 150);
+        }})();
 
         /* Auto-load saved default background from parent pywebview API */
         (function() {{

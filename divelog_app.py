@@ -111,12 +111,19 @@ class Api:
         except Exception:
             return ""
 
-    def convert_raw_underwater(self, b64_data):
-        """Convert a RAW image with underwater white balance correction."""
+    def convert_raw_underwater(self, b64_data, strength=0.5):
+        """Convert a RAW image with underwater white balance correction.
+
+        Args:
+            b64_data: Base64-encoded RAW file bytes.
+            strength: Correction intensity from 0.0 (none) to 1.0 (full). Default 0.5.
+        """
         try:
             import rawpy
             from PIL import Image, ImageEnhance
             import numpy as np
+
+            strength = max(0.0, min(1.0, float(strength)))
 
             raw_bytes = base64.b64decode(b64_data)
             tmp = os.path.join(tempfile.gettempdir(), "mydivelog_raw_tmp")
@@ -126,32 +133,25 @@ class Api:
                 f.write(raw_bytes)
 
             raw = rawpy.imread(tmp_file)
-            # Underwater white balance: boost red, reduce blue
+            # Underwater WB: interpolate from neutral [1,1,1,1] toward corrected
+            r_wb = 1.0 + strength * 0.6   # max 1.6 at strength=1
+            b_wb = 1.0 - strength * 0.15  # min 0.85 at strength=1
             rgb = raw.postprocess(
                 use_camera_wb=False,
                 use_auto_wb=False,
-                user_wb=[2.2, 1.0, 0.75, 1.0],
+                user_wb=[r_wb, 1.0, b_wb, 1.0],
                 no_auto_bright=False,
             )
             raw.close()
             os.unlink(tmp_file)
 
             img = Image.fromarray(rgb)
-            # Adaptive channel correction based on actual color cast
-            arr = np.array(img, dtype=np.float32)
-            r_avg = arr[:, :, 0].mean()
-            g_avg = arr[:, :, 1].mean()
-            b_avg = arr[:, :, 2].mean()
-            target = max(r_avg, g_avg, b_avg)
-            if r_avg > 0:
-                r_boost = min(target / r_avg, 2.0)
-                arr[:, :, 0] = np.clip(arr[:, :, 0] * r_boost, 0, 255)
-            if b_avg > g_avg * 1.1:
-                b_reduce = max(g_avg / b_avg, 0.7)
-                arr[:, :, 2] = np.clip(arr[:, :, 2] * b_reduce, 0, 255)
-            img = Image.fromarray(arr.astype(np.uint8))
-            img = ImageEnhance.Contrast(img).enhance(1.15)
-            img = ImageEnhance.Color(img).enhance(1.25)
+
+            # Mild contrast and saturation, scaled by strength (no second channel boost)
+            contrast = 1.0 + strength * 0.06   # max 1.06
+            saturation = 1.0 + strength * 0.08  # max 1.08
+            img = ImageEnhance.Contrast(img).enhance(contrast)
+            img = ImageEnhance.Color(img).enhance(saturation)
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
@@ -160,40 +160,67 @@ class Api:
         except Exception:
             return ""
 
-    def correct_underwater(self, b64_data):
-        """Apply underwater color correction to any image (JPG/PNG/data-URI)."""
+    def correct_underwater(self, b64_data, strength=0.5):
+        """Apply underwater color correction to any image (JPG/PNG/data-URI).
+
+        Args:
+            b64_data: Base64-encoded image data (optionally with data-URI prefix).
+            strength: Correction intensity from 0.0 (none) to 1.0 (full). Default 0.5.
+        """
         try:
             from PIL import Image, ImageEnhance
             import numpy as np
 
+            strength = max(0.0, min(1.0, float(strength)))
             if b64_data.startswith("data:"):
                 b64_data = b64_data.split(",", 1)[1]
             img_bytes = base64.b64decode(b64_data)
             img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
             arr = np.array(img, dtype=np.float32)
+
+            # --- Percentile-based histogram stretch per channel ---
+            for ch in range(3):
+                lo = np.percentile(arr[:, :, ch], 5)
+                hi = np.percentile(arr[:, :, ch], 95)
+                if hi - lo > 1:
+                    stretched = (arr[:, :, ch] - lo) / (hi - lo) * 255.0
+                    arr[:, :, ch] = arr[:, :, ch] + strength * (stretched - arr[:, :, ch])
+
+            arr = np.clip(arr, 0, 255)
+
+            # --- Gray-world white balance ---
             r_avg = arr[:, :, 0].mean()
             g_avg = arr[:, :, 1].mean()
             b_avg = arr[:, :, 2].mean()
+            overall_avg = (r_avg + g_avg + b_avg) / 3.0
 
-            # Adaptive correction: bring red up toward the dominant channel
-            target = max(r_avg, g_avg, b_avg)
-            if r_avg > 0 and r_avg < target:
-                r_factor = min(target / r_avg, 2.5)
-                arr[:, :, 0] = np.clip(arr[:, :, 0] * r_factor, 0, 255)
-            # Reduce blue if it dominates green
-            if b_avg > g_avg * 1.1:
-                b_factor = max(g_avg / b_avg, 0.65)
-                arr[:, :, 2] = np.clip(arr[:, :, 2] * b_factor, 0, 255)
-            # Slight green reduction if it dominates corrected red
-            new_r = arr[:, :, 0].mean()
-            if g_avg > new_r * 1.15:
-                g_factor = max(new_r / g_avg, 0.8)
-                arr[:, :, 1] = np.clip(arr[:, :, 1] * g_factor, 0, 255)
+            for ch, ch_avg in enumerate([r_avg, g_avg, b_avg]):
+                if ch_avg > 0:
+                    ratio = overall_avg / ch_avg
+                    # Blend toward balanced by strength
+                    effective_ratio = 1.0 + strength * (ratio - 1.0)
+                    arr[:, :, ch] = arr[:, :, ch] * effective_ratio
+
+            arr = np.clip(arr, 0, 255)
+
+            # --- Gamma correction to restore red / suppress blue ---
+            # gamma < 1 brightens (boosts), gamma > 1 darkens (suppresses)
+            r_gamma = 1.0 / (1.0 + strength * 0.8)   # max ~0.56 at s=1 -> red boost
+            b_gamma = 1.0 + strength * 0.3             # max 1.3 at s=1 -> blue suppress
+            arr_norm = arr / 255.0
+            arr_norm[:, :, 0] = np.power(arr_norm[:, :, 0], r_gamma)
+            arr_norm[:, :, 2] = np.power(arr_norm[:, :, 2], b_gamma)
+            arr = arr_norm * 255.0
+            arr = np.clip(arr, 0, 255)
 
             img = Image.fromarray(arr.astype(np.uint8))
-            img = ImageEnhance.Contrast(img).enhance(1.2)
-            img = ImageEnhance.Color(img).enhance(1.3)
+
+            # --- Mild contrast and saturation, scaled by strength ---
+            contrast = 1.0 + strength * 0.08   # max 1.08
+            saturation = 1.0 + strength * 0.10  # max 1.10
+            img = ImageEnhance.Contrast(img).enhance(contrast)
+            img = ImageEnhance.Color(img).enhance(saturation)
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=90)
@@ -219,11 +246,128 @@ class Api:
 
     def save_api_key(self, key):
         try:
+            cfg = {}
+            try:
+                with open(self._api_key_path(), "r") as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+            cfg["anthropic_api_key"] = key.strip()
             with open(self._api_key_path(), "w") as f:
-                json.dump({"anthropic_api_key": key.strip()}, f)
+                json.dump(cfg, f)
             return "ok"
         except Exception:
             return ""
+
+    # ── OpenAI API support ────────────────────────────────────────────
+    def _get_openai_key(self):
+        try:
+            with open(self._api_key_path(), "r") as f:
+                cfg = json.load(f)
+            return cfg.get("openai_api_key", "")
+        except Exception:
+            return ""
+
+    def get_has_openai_key(self):
+        return "yes" if self._get_openai_key() else "no"
+
+    def save_openai_key(self, key):
+        try:
+            cfg = {}
+            try:
+                with open(self._api_key_path(), "r") as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+            cfg["openai_api_key"] = key.strip()
+            with open(self._api_key_path(), "w") as f:
+                json.dump(cfg, f)
+            return "ok"
+        except Exception:
+            return ""
+
+    def get_preferred_provider(self):
+        try:
+            with open(self._api_key_path(), "r") as f:
+                cfg = json.load(f)
+            return cfg.get("preferred_provider", "anthropic")
+        except Exception:
+            return "anthropic"
+
+    def save_preferred_provider(self, provider):
+        try:
+            cfg = {}
+            try:
+                with open(self._api_key_path(), "r") as f:
+                    cfg = json.load(f)
+            except Exception:
+                pass
+            cfg["preferred_provider"] = provider
+            with open(self._api_key_path(), "w") as f:
+                json.dump(cfg, f)
+            return "ok"
+        except Exception:
+            return ""
+
+    def identify_marine_life_openai(self, b64_data, media_type="image/jpeg"):
+        """Send image to OpenAI GPT-4o API for marine life identification."""
+        from urllib.request import Request, urlopen
+        from urllib.error import HTTPError, URLError
+
+        api_key = self._get_openai_key()
+        if not api_key:
+            return json.dumps({"error": "No OpenAI API key configured."})
+
+        try:
+            payload = json.dumps({
+                "model": "gpt-4o",
+                "max_tokens": 1024,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{media_type};base64,{b64_data}",
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": "Identify all marine life visible in this underwater photograph. "
+                                    "For each species, provide the common name, scientific name, and "
+                                    "a brief description. If no marine life is visible, say so."
+                        }
+                    ]
+                }]
+            }).encode("utf-8")
+
+            req = Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
+
+            with urlopen(req, timeout=30) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+
+            text = ""
+            for choice in body.get("choices", []):
+                msg = choice.get("message", {})
+                text += msg.get("content", "")
+
+            return json.dumps({"result": text})
+
+        except HTTPError as e:
+            err_body = e.read().decode("utf-8", errors="replace")[:300]
+            return json.dumps({"error": f"API error ({e.code}): {err_body}"})
+        except URLError as e:
+            return json.dumps({"error": f"Connection error: {e.reason}"})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
 
     def identify_marine_life(self, b64_data, media_type="image/jpeg"):
         """Send image to Claude API for marine life identification."""
